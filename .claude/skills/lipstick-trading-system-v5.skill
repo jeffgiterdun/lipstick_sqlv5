@@ -1,0 +1,367 @@
+---
+name: lipstick-trading-system-v5
+description: Navigate and understand the Lipstick Trading System V5 documentation for ES/NQ futures analysis. Use when working with session calculations, range logic (PoC/TO/RPP), state machine transitions, POI event detection, swing classification, Echo Chamber analysis, database schema, or implementing any part of the Lipstick methodology. Covers all aspects of the hindsight analysis system including Major/Minor/Weekly/Monthly sessions, indefinite session tracking, and hierarchical swing detection.
+---
+
+# Lipstick Trading System V5 - Documentation Navigator
+
+This skill provides comprehensive guidance for navigating the Lipstick Trading System V5 documentation and implementing its methodology.
+
+## System Overview
+
+**Purpose:** Hindsight analysis tool for ES/NQ futures tracking algorithmic price behavior through time-segmented sessions
+
+**Core Components:**
+- **Sessions:** Time segments (Major, Minor, Weekly, Monthly) that define price observation windows
+- **Ranges:** Symmetrical boundaries (PoC ← TO → RPP) extended in time
+- **Status Tracking:** State machine (unbroken → break → return → resolved)
+- **Echo Chamber:** ES/NQ correlation divergence analysis
+- **Swings:** Hierarchical fractal classification (Class 1-4)
+
+## Documentation Structure
+
+The documentation is organized into four main sections:
+
+### 1. User Guide (Methodology)
+Location: `user-guide/`
+
+- **01-introduction.md** - System overview and core concepts
+- **02-sessions.md** - Session types, timing tables, tracking duration
+- **03-ranges-and-terms.md** - PoC, TO, RPP calculations and touch detection
+- **04-order-of-operations.md** - Market narrative theory (OOO/3o's)
+- **05-echo-chamber.md** - ES/NQ correlation analysis methodology
+
+**When to use:** Understanding trading methodology, learning how sessions work, studying the break-and-return model
+
+### 2. Technical Documentation (Implementation)
+Location: `technical/`
+
+- **architecture-overview.md** - System design, V5 changes, data flow, processing phases
+- **database-schema.md** - Table structures, relationships, indexes (NOT uploaded, but referenced)
+- **calculation-logic.md** - All algorithms: range calculation, touch detection, state machine, session activity rules
+- **processing-algorithm.md** - Step-by-step implementation guide (NOT uploaded, but referenced)
+- **edge-cases.md** - Missing data, gaps, DST, holidays, multi-level events
+
+**When to use:** Building the system, understanding implementation details, handling special scenarios
+
+### 3. Reference (Quick Lookup)
+Location: `reference/`
+
+- **session-tables.md** - Complete timing reference for all session types
+- **state-machine.md** - Visual diagrams, transition tables, status progression
+- **formulas.md** - All calculation formulas in one place
+- **glossary.md** - Complete term definitions
+
+**When to use:** Quick lookups, verifying calculations, checking session timings
+
+### 4. Development (Build Process)
+Location: `development/`
+
+- **setup-guide.md** - Environment setup, dependencies, project structure
+- **implementation-phases.md** - 5-phase build process with verification
+- **changelog.md** - Version history, V4→V5 migration
+
+**When to use:** Setting up the project, understanding build sequence, checking version differences
+
+## Quick Navigation Guide
+
+### Common Questions → Documentation Location
+
+**"How do I calculate a session range?"**
+→ `reference/formulas.md` for formulas
+→ `technical/calculation-logic.md` for detailed algorithms
+→ `user-guide/03-ranges-and-terms.md` for conceptual understanding
+
+**"What are the session timings?"**
+→ `reference/session-tables.md` for all timing tables
+→ `user-guide/02-sessions.md` for session explanations
+
+**"How does the state machine work?"**
+→ `reference/state-machine.md` for diagrams and transitions
+→ `technical/calculation-logic.md` for implementation logic
+
+**"What changed in V5?"**
+→ `development/changelog.md` for complete changes
+→ `technical/architecture-overview.md` for design implications
+
+**"How do I handle missing data?"**
+→ `technical/edge-cases.md` for all special scenarios
+
+**"What's the database structure?"**
+→ `technical/database-schema.md` (mentioned but not uploaded)
+→ `technical/architecture-overview.md` for table overview
+
+**"How do I build the system?"**
+→ `development/implementation-phases.md` for step-by-step guide
+→ `development/setup-guide.md` for environment setup
+
+## Key Concepts Reference
+
+### Session Types (4 types)
+
+| Type | Count | Tracking | Expiry |
+|------|-------|----------|--------|
+| **Major** | 5/day | Indefinite | Never |
+| **Minor** | 16/day | 24 hours | TO + 24h |
+| **Weekly** | 1/week | Indefinite | Never |
+| **Monthly** | 1/month | Indefinite | Never |
+
+**Major sessions:** Asia, London, NY_AM, NY_PM, Afternoon
+**Details:** `user-guide/02-sessions.md`, `reference/session-tables.md`
+
+### Range Components
+
+**PoC (Point of Control):** Price with highest variance from TO during calculation window
+**TO (True Open):** Center point, reference price at specific time
+**RPP (Range Projection Point):** Mirror projection = 2*TO - PoC
+
+**Formulas:** `reference/formulas.md`
+**Detailed logic:** `technical/calculation-logic.md`
+**Conceptual:** `user-guide/03-ranges-and-terms.md`
+
+### State Machine
+
+```
+unbroken → break → return → resolved
+```
+
+- **unbroken:** Range set, no touches
+- **break:** First PoC/RPP touch
+- **return:** TO touch after break
+- **resolved:** Complete cycle (break→return→break→return)
+
+**Transitions:** `reference/state-machine.md`
+**Implementation:** `technical/calculation-logic.md` (State Machine Logic section)
+
+### Database Tables (4 core tables)
+
+1. **sessions** - Range values + status tracking
+2. **poi_events** - POI touches with Echo Chamber data
+3. **swings** - Hierarchical classification with POI linkage
+4. **insights** - Research journal with FTS5 search
+
+**Schema details:** `technical/database-schema.md` (not uploaded)
+**Overview:** `technical/architecture-overview.md` (Core Tables section)
+
+### Swing Classification
+
+- **Class 1:** 3-bar pivot
+- **Class 2:** Class 1 with opposite Class 1s on both sides
+- **Class 3:** Class 2 with same Class 2s on both sides
+- **Class 4:** Class 3 with same Class 3s on both sides
+
+**Algorithms:** `technical/calculation-logic.md` (Swing Classification section)
+
+## Implementation Workflow
+
+### Phase 1: Understanding
+1. Read `user-guide/01-introduction.md` for overview
+2. Study `user-guide/02-sessions.md` for session types
+3. Learn `user-guide/03-ranges-and-terms.md` for range logic
+
+### Phase 2: Planning
+1. Review `technical/architecture-overview.md` for design
+2. Check `development/implementation-phases.md` for build sequence
+3. Study `technical/calculation-logic.md` for algorithms
+
+### Phase 3: Building
+1. Follow `development/setup-guide.md` for environment
+2. Implement per `development/implementation-phases.md`
+3. Handle edge cases per `technical/edge-cases.md`
+
+### Phase 4: Verification
+1. Use verification queries in `development/implementation-phases.md`
+2. Check formulas against `reference/formulas.md`
+3. Validate state transitions against `reference/state-machine.md`
+
+## Critical V5 Design Principles
+
+### 1. Indefinite Session Tracking
+Major/Weekly/Monthly sessions track across multiple days until resolved. No `trading_day` constraint.
+
+**Key implications:**
+- At any moment, 10-20+ active sessions may be tracked
+- Sessions can remain active for days/weeks
+- Active session query is critical: `to_time <= current AND status != 'resolved' AND (expires_at IS NULL OR expires_at > current)`
+
+**Details:** `technical/architecture-overview.md` (Session Tracking Model section)
+
+### 2. Echo Chamber Built-In
+Single `poi_events` row contains both ES and NQ timing for direct divergence analysis.
+
+**Structure:**
+- `es_event_time`, `nq_event_time` (both in same row)
+- `time_delta_seconds` (auto-calculated)
+- `leader` ('ES', 'NQ', or 'simultaneous')
+
+**Methodology:** `user-guide/05-echo-chamber.md`
+**Implementation:** `technical/architecture-overview.md` (Echo Chamber Architecture section)
+
+### 3. Session Independence
+Each session calculates ranges independently—no carryover from previous sessions.
+
+**Implication:** London PoC is calculated only from London's window, not from Asia's prices.
+
+**Details:** `technical/calculation-logic.md` (Range Calculation section)
+
+### 4. Weekend Handling
+For sessions using previous day close (Asia, m1800), skip back to Friday if previous day is weekend.
+
+**Details:** `technical/calculation-logic.md` (Weekend Handling section)
+**Edge cases:** `technical/edge-cases.md` (Weekend Gaps section)
+
+### 5. First Occurrence Only
+POI events follow "first break, first return" logic. Subsequent touches of same level are ignored until state changes.
+
+**Example:** Multiple PoC touches while in "break" status → only first break counts
+**Details:** `reference/state-machine.md` (Reset Logic section)
+
+## Common Pitfalls
+
+### 1. Confusing TO Calculation Methods
+- Major sessions use **open** price
+- Minor sessions use **close** price
+- Asia and m1800 use **previous day close**
+
+**Reference:** `reference/formulas.md` (True Open section)
+
+### 2. Missing Time Zone Handling
+All timestamps are ISO 8601 with timezone offset. Always use local time (HH:MM:SS) for session boundary checks, not UTC.
+
+**Details:** `technical/edge-cases.md` (Daylight Saving Time section)
+
+### 3. Forgetting Session Expiry
+Minor sessions expire at `to_time + 24 hours`. Major/Weekly/Monthly never expire (`expires_at = NULL`).
+
+**Check:** `technical/calculation-logic.md` (Session Activity Rules section)
+
+### 4. Incorrect Weekly/Monthly TO
+- **Weekly TO:** Monday 18:00 (not Sunday 18:00)
+- **Monthly TO:** Second full week Sunday 18:00 (complex logic)
+
+**Details:** `reference/session-tables.md` (Weekly/Monthly sections)
+
+### 5. POI Linkage Assumptions
+Swings link to POI events based on time/price proximity (±5 min, ±5 ticks). Many swings may have `nearest_poi_event_id = NULL`.
+
+**Details:** `technical/calculation-logic.md` (Swing Classification section)
+
+## Search Patterns
+
+### Finding Formula
+1. Check `reference/formulas.md` first (all formulas)
+2. Then `technical/calculation-logic.md` for algorithm details
+
+### Understanding Session
+1. Start with `reference/session-tables.md` for timing
+2. Read `user-guide/02-sessions.md` for explanation
+3. Check `technical/calculation-logic.md` for edge cases
+
+### Implementing Feature
+1. Review `technical/architecture-overview.md` for context
+2. Read `technical/calculation-logic.md` for algorithm
+3. Follow `development/implementation-phases.md` for sequence
+4. Handle exceptions per `technical/edge-cases.md`
+
+### Debugging Issue
+1. Check `reference/state-machine.md` for valid transitions
+2. Verify formulas in `reference/formulas.md`
+3. Review edge cases in `technical/edge-cases.md`
+4. Check glossary in `reference/glossary.md` for term definitions
+
+## Processing Sequence
+
+V5 processes in three distinct phases:
+
+**Phase 1: Range Calculation**
+- Input: OHLC candles
+- Process: Calculate TO, PoC, RPP for all sessions
+- Output: `sessions` table populated with `status = 'unbroken'`
+
+**Phase 2: POI Event Detection**
+- Input: Candles + active sessions
+- Process: Detect touches, update status, calculate Echo Chamber
+- Output: `sessions` status updated, `poi_events` populated
+
+**Phase 3: Swing Detection**
+- Input: OHLC candles + POI events
+- Process: Classify swings, link to POIs, capture context
+- Output: `swings` table populated
+
+**Details:** `technical/architecture-overview.md` (Processing Architecture section)
+
+## Advanced Topics
+
+### Echo Chamber Analysis
+Understanding ES/NQ divergences for trading opportunities.
+
+**Core principle:** Market desires asset synchronization—divergences create tradable imbalances.
+
+**Metrics:**
+- `time_delta_seconds`: Time between ES/NQ touches
+- `leader`: Which instrument touched first
+
+**Trading application:** When ES breaks but NQ doesn't, NQ becomes high-probability target.
+
+**Full methodology:** `user-guide/05-echo-chamber.md`
+
+### Order of Operations (OOO)
+Market narrative theory: algorithmic "checklist" of tasks.
+
+**Concept:** Market has sequence of events to complete. Resolutions trigger next task.
+
+**Application:** Track unresolved sessions, identify next likely move based on what "needs" to happen.
+
+**Full explanation:** `user-guide/04-order-of-operations.md`
+
+### Hierarchical Swing Detection
+Multi-pass classification from Class 1 (noise) to Class 4 (major structure).
+
+**Critical rule for Class 3:** Requires SAME type swings on both sides (Class 3 high needs Class 2 HIGHS, not lows).
+
+**Full algorithm:** `technical/calculation-logic.md` (Swing Classification section)
+
+## When to Use Each Document
+
+**Starting a new implementation?**
+→ `development/setup-guide.md` + `development/implementation-phases.md`
+
+**Need to understand methodology?**
+→ Start with `user-guide/` section in order (01→05)
+
+**Debugging calculation issue?**
+→ `reference/formulas.md` + `technical/calculation-logic.md`
+
+**Building database queries?**
+→ `technical/architecture-overview.md` (Core Tables) + `reference/glossary.md`
+
+**Handling missing data?**
+→ `technical/edge-cases.md`
+
+**Quick lookup of session timing?**
+→ `reference/session-tables.md`
+
+**Understanding version changes?**
+→ `development/changelog.md`
+
+## Tips for Efficient Navigation
+
+1. **Always check glossary first** if unsure about a term: `reference/glossary.md`
+2. **Session timing questions** go straight to: `reference/session-tables.md`
+3. **Formula verification** starts with: `reference/formulas.md`
+4. **Conceptual questions** begin in: `user-guide/` section
+5. **Implementation questions** go to: `technical/` section
+6. **Edge cases** are comprehensively covered in: `technical/edge-cases.md`
+
+## Critical Files to Master
+
+For complete understanding of Lipstick V5, prioritize these files in order:
+
+1. `user-guide/01-introduction.md` - Foundation
+2. `reference/session-tables.md` - Timing reference
+3. `technical/calculation-logic.md` - Implementation core
+4. `reference/state-machine.md` - Status transitions
+5. `technical/architecture-overview.md` - System design
+6. `technical/edge-cases.md` - Special scenarios
+
+With these six files, you'll have 80% of the knowledge needed to work with Lipstick V5 effectively.
