@@ -187,6 +187,55 @@ def calculate_monthly_session(symbol, year, month):
     )
 ```
 
+### Yearly Session Calculation
+
+For each year in the dataset:
+
+```python
+def calculate_yearly_session(symbol, year):
+    """
+    Calculate Yearly session for a given year.
+
+    Args:
+        symbol: 'ES' or 'NQ'
+        year: Year (e.g., 2025)
+
+    Creates:
+        1 Yearly session
+    """
+    # Determine first full trading day of January
+    jan_first = date(year, 1, 1)
+    first_trading_day = get_first_full_trading_day_of_year(jan_first)
+
+    session_start_time = f"{first_trading_day}T18:00:00-05:00"
+
+    # TO is set at first Sunday 18:00 of April
+    first_april_sunday = get_first_sunday_of_april(year)
+    to_time = f"{first_april_sunday}T18:00:00-05:00"
+
+    # Calculate range (Q1: first trading day through end of March)
+    ranges = calculate_session_ranges(
+        symbol,
+        'Yearly',
+        session_start_time,
+        to_time
+    )
+
+    # Insert into sessions table
+    insert_session(
+        symbol=symbol,
+        session_type='Yearly',
+        session_name='Yearly',
+        session_start_time=session_start_time,
+        to_time=to_time,
+        true_open=ranges['true_open'],
+        poc=ranges['poc'],
+        rpp=ranges['rpp'],
+        status='unbroken',
+        expires_at=None  # Never expires
+    )
+```
+
 ---
 
 ## Phase 2: POI Event Detection
@@ -555,6 +604,14 @@ def capture_session_context(symbol, swings):
 
             elif session.session_type == 'Monthly':
                 snapshot['monthly_session'] = {
+                    'status': session.status,
+                    'first_break_time': session.first_break_time,
+                    'first_return_time': session.first_return_time,
+                    'resolution_time': session.resolution_time
+                }
+
+            elif session.session_type == 'Yearly':
+                snapshot['yearly_session'] = {
                     'status': session.status,
                     'first_break_time': session.first_break_time,
                     'first_return_time': session.first_return_time,

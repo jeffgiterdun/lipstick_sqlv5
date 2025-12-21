@@ -26,10 +26,11 @@ Once one event is resolved, we look back to see what the next logical session ch
 
 The sessions follow a hierarchy of significance for Order of Operations:
 
-1. **Monthly session resolutions** - The most significant events
-2. **Weekly session resolutions** - Highly significant
-3. **Major session resolutions** - Provide daily structure
-4. **Minor session resolutions** - Provide intraday execution context
+1. **Yearly session resolutions** - The absolute most significant events
+2. **Monthly session resolutions** - Most significant events
+3. **Weekly session resolutions** - Highly significant
+4. **Major session resolutions** - Provide daily structure
+5. **Minor session resolutions** - Provide intraday execution context
 
 ## How OOO Works in Practice
 

@@ -28,6 +28,7 @@ TO = close_price[previous_trading_day @ 16:59]
 - **Minor sessions**: Use 'close'
 - **Weekly sessions**: Use 'open'
 - **Monthly sessions**: Use 'open'
+- **Yearly sessions**: Use 'open'
 - **Special cases**: Asia and m1800 use previous day close
 
 ---
@@ -267,7 +268,7 @@ expires_at: 2025-11-28T09:22:00-05:00
 
 ---
 
-### Major/Weekly/Monthly Expiry
+### Major/Weekly/Monthly/Yearly Expiry
 
 **Formula:**
 ```

@@ -76,6 +76,7 @@ Calculate ranges for all sessions and insert into `sessions` table.
 2. Minor sessions (16 per day)
 3. Weekly sessions (1 per week)
 4. Monthly sessions (1 per month)
+5. Yearly sessions (1 per year)
 
 ### Script
 
@@ -97,6 +98,10 @@ python calculate_ranges_v5.py
 
 **For Each Month:**
 - Calculate 1 Monthly session range
+- Set `expires_at = NULL`
+
+**For Each Year:**
+- Calculate 1 Yearly session range
 - Set `expires_at = NULL`
 
 ### Expected Output
@@ -129,6 +134,7 @@ GROUP BY symbol, session_type;
 -- ES, Minor: ~4,000 (16 per day)
 -- ES, Weekly: ~52
 -- ES, Monthly: ~12
+-- ES, Yearly: 1
 -- (Same for NQ)
 
 -- Check for NULL ranges (indicates missing data)
@@ -141,7 +147,7 @@ SELECT session_type, COUNT(*) as count
 FROM sessions
 WHERE expires_at IS NULL
 GROUP BY session_type;
--- Expected: Major, Weekly, Monthly all have NULL expires_at
+-- Expected: Major, Weekly, Monthly, Yearly all have NULL expires_at
 
 SELECT COUNT(*) as minor_with_expiry
 FROM sessions
@@ -155,9 +161,10 @@ AND expires_at IS NOT NULL;
 - ✅ 21 sessions per trading day per symbol
 - ✅ Weekly sessions calculated correctly
 - ✅ Monthly sessions calculated correctly
+- ✅ Yearly sessions calculated correctly
 - ✅ All sessions have `status = 'unbroken'`
 - ✅ Minor sessions have `expires_at` set
-- ✅ Major/Weekly/Monthly have `expires_at = NULL`
+- ✅ Major/Weekly/Monthly/Yearly have `expires_at = NULL`
 
 ---
 

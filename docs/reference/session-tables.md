@@ -93,6 +93,41 @@ The key rule: **We need Monday's trading session (Sunday 18:00) to be included.*
 
 ---
 
+## Yearly Session (1 per year)
+
+| Property | Value |
+|----------|-------|
+| **PoC Tracking Begins** | First full trading day of January at 18:00 |
+| **True Open Time** | First Sunday 18:00 of April (open price) |
+| **Range Window** | First trading day of year through end of March (Q1) |
+| **Tracking Duration** | Indefinite (until resolved) |
+| **Expiry** | None (expires_at = NULL) |
+
+### Determining First Full Trading Day of the Year
+
+The key rule: **We need Monday's trading session (Sunday 18:00) to be included in January.**
+
+- If Jan 1st = **Monday**: First trading day is **Sunday** (the day before) at 18:00
+- If Jan 1st = **Tuesday**: First trading day is **Monday** (the day before) at 18:00
+- If Jan 1st = **Wednesday**: First trading day is **Tuesday** (the day before) at 18:00
+- If Jan 1st = **Thursday**: First trading day is **Wednesday** (the day before) at 18:00
+- If Jan 1st = **Friday**: First trading day is **Thursday** (the day before) at 18:00
+- If Jan 1st = **Saturday**: First trading day is **Sunday** (the next day) at 18:00
+- If Jan 1st = **Sunday**: First trading day is **Sunday** (same day) at 18:00
+
+### True Open Timing
+
+The TO is set at the **first Sunday 18:00 of April**, which begins the Monday trading day.
+
+This provides:
+- Entire first quarter - Q1 (~66 trading days across January, February, March) to establish the PoC
+- TO set at the beginning of Q2 (April)
+- Tracking for the remainder of the year (Q2, Q3, Q4)
+
+**Note:** Yearly session does not have a defined range until the first Sunday 18:00 of April.
+
+---
+
 ## Session Hierarchy
 
 ### By Significance (highest to lowest)

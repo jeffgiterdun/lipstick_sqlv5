@@ -63,7 +63,7 @@ The Lipstick Trading System tracks algorithmic price behavior through time-segme
 
 ### Core Concepts
 
-- **Sessions**: Time segments (Major, Minor, Weekly, Monthly) that define when to measure price action
+- **Sessions**: Time segments (Major, Minor, Weekly, Monthly, Yearly) that define when to measure price action
 - **Ranges**: Symmetrical boundaries (PoC ← TO → RPP) where price is expected to react
 - **Status Tracking**: State machine that monitors price progression (unbroken → break → return → resolved)
 - **Echo Chamber**: ES/NQ correlation analysis exploiting synchronization divergences
@@ -114,10 +114,11 @@ The Lipstick Trading System tracks algorithmic price behavior through time-segme
 
 | Type | Count | Tracking Duration | Primary Use |
 |------|-------|-------------------|-------------|
+| **Yearly** | 1 per year | Indefinite | Absolute highest timeframe context |
+| **Monthly** | 1 per month | Indefinite | Highest monthly timeframe context |
+| **Weekly** | 1 per week | Indefinite | Multi-day context |
 | **Major** | 5 per day | Indefinite | Trade setups, narrative |
 | **Minor** | 16 per day | 24 hours | Execution, confluence |
-| **Weekly** | 1 per week | Indefinite | Multi-day context |
-| **Monthly** | 1 per month | Indefinite | Highest timeframe context |
 
 ### Processing Flow
 
@@ -145,22 +146,27 @@ OHLC Data (1-minute bars)
 
 ### By Significance
 
-1. **Monthly** (highest)
-   - Longest timeframe
-   - Most significant levels
+1. **Yearly** (absolute highest)
+   - Longest timeframe - full year
+   - Absolute most significant levels
    - Tracks indefinitely
 
-2. **Weekly** (high)
+2. **Monthly** (highest)
+   - Longest monthly timeframe
+   - Most significant monthly levels
+   - Tracks indefinitely
+
+3. **Weekly** (high)
    - Multi-day structure
    - High significance levels
    - Tracks indefinitely
 
-3. **Major** (significant)
+4. **Major** (significant)
    - Daily structure
    - Trade setup levels
    - Tracks indefinitely
 
-4. **Minor** (execution)
+5. **Minor** (execution)
    - Intraday context
    - Execution and confluence
    - Tracks 24 hours, then expires

@@ -2,7 +2,7 @@
 
 ## Understanding Sessions
 
-Sessions are groups of time. We have four categories of sessions: **Major, Minor, Weekly, and Monthly**. Each session segment of time is used to define ranges; the range is made up of three points: PoC's (Point of Control), RPP's (Range Projection Points), and TO's (True Opens).
+Sessions are groups of time. We have five categories of sessions: **Major, Minor, Weekly, Monthly, and Yearly**. Each session segment of time is used to define ranges; the range is made up of three points: PoC's (Point of Control), RPP's (Range Projection Points), and TO's (True Opens).
 
 ## Session Functions
 
@@ -10,23 +10,26 @@ Sessions are groups of time. We have four categories of sessions: **Major, Minor
 2. **Minor Ranges** are for trade execution and confluence
 3. **Weekly Ranges** provide multi-day context and higher timeframe structure
 4. **Monthly Ranges** provide the longest timeframe context and highest significance levels
+5. **Yearly Ranges** provide the absolute highest timeframe context across the entire year
 
 ## Session Tracking Duration
 
 - **Major sessions**: Track indefinitely until resolved (can remain active across multiple days)
 - **Weekly sessions**: Track indefinitely until resolved (typically span multiple days)
 - **Monthly sessions**: Track indefinitely until resolved (typically span multiple weeks)
+- **Yearly sessions**: Track indefinitely until resolved (typically span multiple months)
 - **Minor sessions**: Track for 24 hours after True Open is established, then expire
 
 ## Session Hierarchy and Importance
 
 The sessions follow a hierarchy of significance:
-- **Monthly** (highest significance - longest timeframe)
+- **Yearly** (absolute highest significance - full year timeframe)
+- **Monthly** (highest significance - longest monthly timeframe)
 - **Weekly** (high significance - multi-day timeframe)
 - **Major** (significant - single to multi-day timeframe)
 - **Minor** (execution timeframe - intraday)
 
-Each session type serves a specific function. Major, Weekly, and Monthly sessions are the most important for Points of Interest and can remain active across multiple trading days until they reach "resolved" status. Minor sessions provide intraday execution context and confluence.
+Each session type serves a specific function. Major, Weekly, Monthly, and Yearly sessions are the most important for Points of Interest and can remain active across multiple trading days until they reach "resolved" status. Minor sessions provide intraday execution context and confluence.
 
 ---
 
@@ -110,6 +113,45 @@ The Monthly session provides the longest timeframe context and highest significa
 - The TO is set at the Sunday 18:00 candle that begins the week AFTER the first full week
 
 **Important:** Until the second full week begins, the Monthly session does not have a defined range (TO, PoC, RPP are not yet calculable).
+
+---
+
+## Yearly Session
+
+The Yearly session provides the absolute highest timeframe context and most significant price levels across an entire calendar year. There is one active Yearly session at any given time.
+
+### Yearly Session Calculation
+
+- **PoC Tracking Begins:** First full trading day of the calendar year
+- **True Open (TO):** Opening price of the first Sunday 18:00 of April
+- **Range Calculation:** We look for the highest high or lowest low from the first full trading day of January through the end of March (entire Q1) (until TO candle, exclusive) that gives the greatest variance from the TO price. This point is the PoC.
+- **Duration:** Tracks indefinitely until the session reaches "resolved" status
+
+### First Full Trading Day of the Year
+
+Following the same logic as Monthly sessions, we need to ensure Monday's trading session (Sunday 18:00) is included in January:
+
+- If Jan 1st falls on Saturday, Sunday, or Monday → trading begins Sunday Jan 1st at 18:00 (or late Sunday from previous year)
+- If Jan 1st falls on Tuesday through Friday → trading begins on the prior Sunday/Monday transition from December
+
+### True Open Timing
+
+The TO is set at the **first Sunday 18:00 of April**, which begins the Monday trading day.
+
+This provides:
+- Entire first quarter - Q1 (~66 trading days across January, February, March) to establish the PoC
+- TO set at the beginning of Q2 (April)
+- Tracking of these critical levels for the remainder of the year (Q2, Q3, Q4)
+
+**Important:** Until the first Sunday 18:00 of April, the Yearly session does not have a defined range (TO, PoC, RPP are not yet calculable).
+
+### Example: 2025 Yearly Session
+
+- Jan 1, 2025 = Wednesday
+- First full trading day: Dec 31, 2024 (Tuesday) at 18:00
+- PoC Tracking Window: Dec 31, 2024 18:00 through March 31, 2025 23:59 (entire Q1)
+- TO Time: April 6, 2025 (Sunday) at 18:00
+- Range Active: April 6, 2025 through Dec 31, 2025 (or until resolved)
 
 ---
 

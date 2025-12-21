@@ -415,6 +415,35 @@ A "full week" must include Monday's trading session (Sunday 18:00).
 - If the 1st falls on Tuesday, Wednesday, Thursday, or Friday → that is NOT a full week; the following week is the first full week
 - The TO is set at the Sunday 18:00 candle that begins the week AFTER the first full week
 
+### Yearly Session
+
+**First Full Trading Day of the Year:**
+
+The key rule: **We need Monday's trading session (Sunday 18:00) to be included in January.**
+
+- If Jan 1st = **Monday**: First trading day is **Sunday** (the day before) at 18:00 ✓
+- If Jan 1st = **Tuesday**: First trading day is **Monday** (the day before) at 18:00 ✓
+- If Jan 1st = **Wednesday**: First trading day is **Tuesday** (the day before) at 18:00 ✓
+- If Jan 1st = **Thursday**: First trading day is **Wednesday** (the day before) at 18:00 ✓
+- If Jan 1st = **Friday**: First trading day is **Thursday** (the day before) at 18:00 ✓
+- If Jan 1st = **Saturday**: First trading day is **Sunday** (the next day) at 18:00 ✓
+- If Jan 1st = **Sunday**: First trading day is **Sunday** (same day) at 18:00 ✓
+
+**True Open Timing:**
+
+The TO is set at the **first Sunday 18:00 of April** (beginning of Monday trading day).
+
+**PoC Tracking Window:**
+
+From first full trading day of January through March 31st 23:59 (entire Q1) (exclusive of TO candle).
+
+**Example: 2025 Yearly Session**
+- Jan 1, 2025 = Wednesday
+- First trading day: Tuesday Dec 31, 2024 at 18:00
+- PoC Window: Dec 31, 2024 18:00 through March 31, 2025 23:59 (entire Q1)
+- TO Time: Sunday April 6, 2025 at 18:00
+- TO Value: Open price of April 6, 2025 18:00 candle
+
 ---
 
 ## Next Steps

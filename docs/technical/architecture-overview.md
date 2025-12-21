@@ -141,10 +141,11 @@ V5 processing happens in three distinct phases:
 
 | Session Type | Count | Tracking Duration | Expiry |
 |--------------|-------|-------------------|--------|
+| Yearly | 1 per year | Indefinite | Never (expires_at = NULL) |
+| Monthly | 1 per month | Indefinite | Never (expires_at = NULL) |
+| Weekly | 1 per week | Indefinite | Never (expires_at = NULL) |
 | Major | 5 per day | Indefinite | Never (expires_at = NULL) |
 | Minor | 16 per day | 24 hours from TO | expires_at = to_time + 24h |
-| Weekly | 1 per week | Indefinite | Never (expires_at = NULL) |
-| Monthly | 1 per month | Indefinite | Never (expires_at = NULL) |
 
 ### Active Session Criteria
 

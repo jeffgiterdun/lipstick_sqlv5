@@ -125,8 +125,8 @@ AND time = '2025-12-16T09:22:00-05:00';
 CREATE TABLE sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     symbol TEXT NOT NULL,
-    session_type TEXT NOT NULL,  -- 'Major', 'Minor', 'Weekly', 'Monthly'
-    session_name TEXT NOT NULL,  -- 'Asia', 'London', 'm0900', 'Weekly', 'Monthly'
+    session_type TEXT NOT NULL,  -- 'Major', 'Minor', 'Weekly', 'Monthly', 'Yearly'
+    session_name TEXT NOT NULL,  -- 'Asia', 'London', 'm0900', 'Weekly', 'Monthly', 'Yearly'
 
     -- Time boundaries
     session_start_time TEXT NOT NULL,  -- ISO timestamp when session begins
@@ -167,7 +167,7 @@ CREATE INDEX idx_sessions_unexpired ON sessions(symbol, expires_at) WHERE expire
 |--------|------|-------------|
 | `id` | INTEGER | Primary key |
 | `symbol` | TEXT | 'ES' or 'NQ' |
-| `session_type` | TEXT | 'Major', 'Minor', 'Weekly', or 'Monthly' |
+| `session_type` | TEXT | 'Major', 'Minor', 'Weekly', 'Monthly', or 'Yearly' |
 | `session_name` | TEXT | Specific session identifier |
 | `session_start_time` | TEXT | ISO timestamp when session begins |
 | `to_time` | TEXT | ISO timestamp of True Open candle |
@@ -182,7 +182,7 @@ CREATE INDEX idx_sessions_unexpired ON sessions(symbol, expires_at) WHERE expire
 | `second_break_side` | TEXT | Which side broke second: 'PoC' or 'RPP' |
 | `resolution_time` | TEXT | ISO timestamp when session resolved |
 | `resolution_type` | TEXT | 'single_sided' or 'double_sided' |
-| `expires_at` | TEXT | NULL for Major/Weekly/Monthly, to_time + 24h for Minor |
+| `expires_at` | TEXT | NULL for Major/Weekly/Monthly/Yearly, to_time + 24h for Minor |
 | `created_at` | TEXT | ISO timestamp when record created |
 | `updated_at` | TEXT | ISO timestamp when record last updated |
 
@@ -193,6 +193,7 @@ CREATE INDEX idx_sessions_unexpired ON sessions(symbol, expires_at) WHERE expire
 | Major | NULL (tracks until resolved) |
 | Weekly | NULL (tracks until resolved) |
 | Monthly | NULL (tracks until resolved) |
+| Yearly | NULL (tracks until resolved) |
 | Minor | to_time + 24 hours |
 
 ### Example Records
@@ -245,8 +246,8 @@ CREATE TABLE poi_events (
     -- Denormalized session context (for easy querying)
     trading_day TEXT NOT NULL,  -- YYYY-MM-DD format (e.g., '2025-12-16')
     symbol TEXT NOT NULL,  -- 'ES' or 'NQ'
-    session_type TEXT NOT NULL,  -- 'Major', 'Minor', 'Weekly', 'Monthly'
-    session_name TEXT NOT NULL,  -- 'London', 'm0900', 'Weekly', 'Monthly'
+    session_type TEXT NOT NULL,  -- 'Major', 'Minor', 'Weekly', 'Monthly', 'Yearly'
+    session_name TEXT NOT NULL,  -- 'London', 'm0900', 'Weekly', 'Monthly', 'Yearly'
 
     poi_type TEXT NOT NULL,  -- 'PoC', 'RPP', 'TO'
     event_type TEXT NOT NULL,  -- 'break', 'return', 'resolution'
@@ -282,8 +283,8 @@ CREATE INDEX idx_poi_events_nq_time ON poi_events(nq_event_time);
 | `session_id` | INTEGER | Foreign key to sessions table |
 | `trading_day` | TEXT | Trading day in YYYY-MM-DD format (e.g., '2025-12-16') |
 | `symbol` | TEXT | 'ES' or 'NQ' (denormalized from sessions) |
-| `session_type` | TEXT | 'Major', 'Minor', 'Weekly', or 'Monthly' |
-| `session_name` | TEXT | Specific session: 'London', 'm0900', 'Weekly', 'Monthly' |
+| `session_type` | TEXT | 'Major', 'Minor', 'Weekly', 'Monthly', or 'Yearly' |
+| `session_name` | TEXT | Specific session: 'London', 'm0900', 'Weekly', 'Monthly', 'Yearly' |
 | `poi_type` | TEXT | Which level touched: 'PoC', 'RPP', or 'TO' |
 | `event_type` | TEXT | Type of event: 'break', 'return', or 'resolution' |
 | `es_event_time` | TEXT | When ES touched (NULL if not yet) |
@@ -582,6 +583,7 @@ Example: `2025-11-27T09:15:00-05:00`
 - `'Minor'`
 - `'Weekly'`
 - `'Monthly'`
+- `'Yearly'`
 
 ### POI Types
 

@@ -19,9 +19,10 @@ True opens are very important time and price points that we use to evaluate and 
 
 ### Tracking Duration by Session Type
 
-- **Major True Opens:** Extended from the inception point throughout the trading day and beyond until resolved
-- **Weekly True Opens:** Extended from inception indefinitely until resolved
+- **Yearly True Opens:** Extended from inception indefinitely until resolved
 - **Monthly True Opens:** Extended from inception indefinitely until resolved
+- **Weekly True Opens:** Extended from inception indefinitely until resolved
+- **Major True Opens:** Extended from the inception point throughout the trading day and beyond until resolved
 - **Minor True Opens:** Extended from inception for 24 hours
 
 ### Significance
@@ -129,7 +130,7 @@ Our market premise is based on a **break and return model**. A range is establis
 
 ### Critical Rule
 
-Major, Weekly, and Monthly sessions track indefinitely until reaching "resolved" status. Minor sessions track for 24 hours after TO is established.
+Major, Weekly, Monthly, and Yearly sessions track indefinitely until reaching "resolved" status. Minor sessions track for 24 hours after TO is established.
 
 ---
 

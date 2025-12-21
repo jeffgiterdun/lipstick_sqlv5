@@ -18,26 +18,31 @@ The system consists of three main elements:
 
 ## Session Hierarchy
 
-The Lipstick system uses four categories of sessions, each serving a specific purpose:
+The Lipstick system uses five categories of sessions, each serving a specific purpose:
 
 ### Session Types (by significance)
 
-1. **Monthly Sessions** (highest significance - longest timeframe)
-   - Provide the longest timeframe context
+1. **Yearly Sessions** (absolute highest significance - full year timeframe)
+   - Provide the longest possible timeframe context
+   - One per calendar year
    - Track indefinitely until resolved
-   - Most significant levels
 
-2. **Weekly Sessions** (high significance - multi-day timeframe)
+2. **Monthly Sessions** (highest significance - longest monthly timeframe)
+   - Provide the longest monthly timeframe context
+   - Track indefinitely until resolved
+   - Most significant monthly levels
+
+3. **Weekly Sessions** (high significance - multi-day timeframe)
    - Provide multi-day context and higher timeframe structure
    - Track indefinitely until resolved
    - Highly significant levels
 
-3. **Major Sessions** (significant - single to multi-day timeframe)
+4. **Major Sessions** (significant - single to multi-day timeframe)
    - Used for trade setups and building narrative
    - 5 sessions per trading day (Asia, London, NY AM, NY PM, Afternoon)
    - Track indefinitely until resolved
 
-4. **Minor Sessions** (execution timeframe - intraday)
+5. **Minor Sessions** (execution timeframe - intraday)
    - Used for trade execution and confluence
    - 16 sessions per trading day (90-minute segments)
    - Track for 24 hours after True Open, then expire

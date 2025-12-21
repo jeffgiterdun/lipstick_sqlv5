@@ -13,9 +13,10 @@ All notable changes to the Lipstick Analytical Tool.
 ### Added
 
 #### Session Types
+- **Yearly sessions** - Absolute highest significance timeframe tracking (full calendar year)
+- **Monthly sessions** - Highest monthly significance timeframe tracking
 - **Weekly sessions** - Multi-day timeframe tracking
-- **Monthly sessions** - Highest significance timeframe tracking
-- **Indefinite tracking** for Major, Weekly, and Monthly sessions (no expiry)
+- **Indefinite tracking** for Major, Weekly, Monthly, and Yearly sessions (no expiry)
 - **24-hour expiry** for Minor sessions only
 
 #### Database Schema
@@ -81,7 +82,7 @@ All notable changes to the Lipstick Analytical Tool.
 #### Limitations
 - Sessions expired at end of trading day
 - Echo Chamber analysis required post-processing
-- No Weekly or Monthly timeframes
+- No Weekly, Monthly, or Yearly timeframes
 - No hierarchical swing classification
 
 ---
@@ -96,7 +97,7 @@ All notable changes to the Lipstick Analytical Tool.
 
 2. **Session tracking model changed**
    - V4: All sessions expire at day end
-   - V5: Major/Weekly/Monthly track indefinitely
+   - V5: Major/Weekly/Monthly/Yearly track indefinitely
 
 3. **Removed features**
    - Quartile sessions (use Minor sessions instead)

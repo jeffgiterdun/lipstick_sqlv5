@@ -161,7 +161,7 @@ The second state in the session lifecycle. Occurs when price touches the True Op
 The second touch of either PoC or RPP, occurring after the first return. Records: `second_break_time` and `second_break_side`.
 
 ### Session
-A defined time segment used to calculate ranges and track price behavior. Four types: Major, Minor, Weekly, Monthly.
+A defined time segment used to calculate ranges and track price behavior. Five types: Major, Minor, Weekly, Monthly, Yearly.
 
 ### Session Context
 A JSON snapshot of all active session statuses at a specific moment in time. Captured for each swing to enable analysis of market conditions when the swing occurred.
@@ -216,6 +216,13 @@ A session calculated weekly, starting Sunday 18:00. Provides multi-day context a
 
 ---
 
+## Y
+
+### Yearly Session
+A session calculated yearly, starting from the first full trading day of January. The True Open is set at the first Sunday 18:00 of April. The PoC is calculated from the entire first quarter (Q1). Provides the absolute highest timeframe context across an entire calendar year. Tracks indefinitely until resolved.
+
+---
+
 ## Session Status Values
 
 | Status | Meaning |
@@ -231,10 +238,11 @@ A session calculated weekly, starting Sunday 18:00. Provides multi-day context a
 
 | Type | Count | Tracking Duration | Primary Use |
 |------|-------|-------------------|-------------|
+| **Yearly** | 1 per year | Indefinite | Absolute highest timeframe context |
+| **Monthly** | 1 per month | Indefinite | Highest monthly timeframe context |
+| **Weekly** | 1 per week | Indefinite | Multi-day context |
 | **Major** | 5 per day | Indefinite | Trade setups, narrative |
 | **Minor** | 16 per day | 24 hours | Execution, confluence |
-| **Weekly** | 1 per week | Indefinite | Multi-day context |
-| **Monthly** | 1 per month | Indefinite | Highest timeframe context |
 
 ---
 
