@@ -20,13 +20,23 @@ Highs and lows are processed separately to create nested fractal structure.
 Each class promotion is a single pass comparing adjacent swings in the sorted list.
 
 Usage:
-    python detect_swings.py
+    # Full mode (recalculate all swings from scratch)
+    python detect_swings.py --full
+
+    # Incremental mode (only process if new data exists)
+    python detect_swings.py --incremental
 """
 
 import sqlite3
 import json
+import argparse
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
+from metadata_helpers import (
+    get_last_processed_time,
+    update_processing_metadata,
+    get_data_range
+)
 
 # Database path
 DB_PATH = 'data/yearly_monthly.db'
@@ -329,10 +339,15 @@ def calculate_movement_metrics(swings: List[Dict]) -> List[Dict]:
     """
     Calculate movement metrics for each swing.
 
-    For each swing, finds the most recent swing of opposite type and calculates:
+    For each swing, finds the appropriate prior opposite swing and calculates:
     - points_from_prior: Price difference
     - candles_from_prior: Number of candles between swings
     - prior_opposite_swing_index: Index in swings list (for ID lookup later)
+
+    Logic:
+    - Class 1 swings: Reference the immediate prior opposite swing (any class)
+    - Class 2+ swings: Reference the most recent Class 2+ opposite swing
+      (skips Class 1 noise to measure full structural moves)
 
     Args:
         swings: List of swings (sorted by index)
@@ -341,16 +356,28 @@ def calculate_movement_metrics(swings: List[Dict]) -> List[Dict]:
         Updated swings list with movement metrics
     """
     for i, swing in enumerate(swings):
-        # Find the most recent swing of opposite type
+        # Find the appropriate prior opposite swing based on class
         prior_opposite = None
         prior_opposite_index = None
 
         # Look backwards through swings
         for j in range(i - 1, -1, -1):
-            if swings[j]['type'] != swing['type']:
-                prior_opposite = swings[j]
-                prior_opposite_index = j
-                break
+            candidate = swings[j]
+
+            # Must be opposite type
+            if candidate['type'] != swing['type']:
+                # Class 1 swings: take the first (most recent) opposite swing
+                if swing['class'] == 1:
+                    prior_opposite = candidate
+                    prior_opposite_index = j
+                    break
+
+                # Class 2+ swings: skip Class 1s, find first Class 2+ opposite
+                elif candidate['class'] >= 2:
+                    prior_opposite = candidate
+                    prior_opposite_index = j
+                    break
+                # If candidate is Class 1 and we need Class 2+, continue searching
 
         if prior_opposite:
             # Calculate price difference
@@ -465,6 +492,22 @@ def get_candles(conn: sqlite3.Connection, symbol: str) -> List[Dict]:
     return [dict(row) for row in cursor.fetchall()]
 
 
+def delete_swings(conn: sqlite3.Connection, symbol: str) -> int:
+    """
+    Delete all swings for a symbol.
+
+    Args:
+        conn: Database connection
+        symbol: 'ES' or 'NQ'
+
+    Returns:
+        Number of swings deleted
+    """
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM swings WHERE symbol = ?", (symbol,))
+    return cursor.rowcount
+
+
 def insert_swings(
     conn: sqlite3.Connection,
     symbol: str,
@@ -539,8 +582,17 @@ def insert_swings(
 # Main Processing
 # ============================================================================
 
-def process_symbol(conn: sqlite3.Connection, symbol: str):
-    """Process all swings for a symbol."""
+def detect_swings_for_symbol(conn: sqlite3.Connection, symbol: str) -> List[Dict]:
+    """
+    Detect and classify all swings for a symbol.
+
+    Args:
+        conn: Database connection
+        symbol: 'ES' or 'NQ'
+
+    Returns:
+        List of swing dictionaries with all metrics calculated
+    """
     print(f"\n{'='*80}")
     print(f"Processing {symbol} Swings")
     print(f"{'='*80}\n")
@@ -573,22 +625,170 @@ def process_symbol(conn: sqlite3.Connection, symbol: str):
     print("Calculating movement metrics...")
     swings = calculate_movement_metrics(swings)
 
-    # Insert into database
-    print("Inserting swings into database...")
-    insert_counts = insert_swings(conn, symbol, swings)
+    return swings
 
-    print(f"\n{symbol} Complete:")
-    print(f"  Total Swings: {len(swings)}")
-    print(f"  Class 1: {insert_counts[1]}")
-    print(f"  Class 2: {insert_counts[2]}")
-    print(f"  Class 3: {insert_counts[3]}")
-    print(f"  Class 4: {insert_counts[4]}")
-    print(f"  Class 5: {insert_counts[5]}")
-    print(f"  Class 6: {insert_counts[6]}")
+
+def process_full(conn: sqlite3.Connection, symbols: List[str]) -> Dict:
+    """
+    Full processing mode: Delete all swings and recalculate from scratch.
+
+    Args:
+        conn: Database connection
+        symbols: List of symbols to process
+
+    Returns:
+        Dictionary with processing statistics
+    """
+    stats = {
+        'total_swings': 0,
+        'by_symbol': {}
+    }
+
+    print("\nMODE: Full Processing (delete and recalculate all swings)")
+    print()
+
+    for symbol in symbols:
+        # Delete existing swings
+        deleted = delete_swings(conn, symbol)
+        if deleted > 0:
+            print(f"Deleted {deleted} existing {symbol} swings")
+
+        # Detect all swings
+        swings = detect_swings_for_symbol(conn, symbol)
+
+        # Insert into database
+        print("Inserting swings into database...")
+        insert_counts = insert_swings(conn, symbol, swings)
+
+        print(f"\n{symbol} Complete:")
+        print(f"  Total Swings: {len(swings)}")
+        print(f"  Class 1: {insert_counts[1]}")
+        print(f"  Class 2: {insert_counts[2]}")
+        print(f"  Class 3: {insert_counts[3]}")
+        print(f"  Class 4: {insert_counts[4]}")
+        print(f"  Class 5: {insert_counts[5]}")
+        print(f"  Class 6: {insert_counts[6]}")
+
+        stats['total_swings'] += len(swings)
+        stats['by_symbol'][symbol] = {
+            'count': len(swings),
+            'by_class': insert_counts
+        }
+
+    return stats
+
+
+def process_incremental(conn: sqlite3.Connection, symbols: List[str]) -> Dict:
+    """
+    Incremental processing mode: Only process if new data exists since last run.
+
+    Note: Because swing classification is hierarchical and depends on comparing
+    adjacent swings, we re-run full detection when new data exists. This ensures
+    correct classification as new swings may promote existing swings to higher classes.
+
+    Args:
+        conn: Database connection
+        symbols: List of symbols to process
+
+    Returns:
+        Dictionary with processing statistics
+    """
+    stats = {
+        'total_swings': 0,
+        'by_symbol': {},
+        'symbols_processed': [],
+        'symbols_skipped': []
+    }
+
+    print("\nMODE: Incremental Processing (only process if new data exists)")
+    print()
+
+    for symbol in symbols:
+        # Get last processed time
+        cursor = conn.cursor()
+        last_processed_time = get_last_processed_time(symbol, 'swing_detection', cursor)
+
+        # Get current data range
+        data_range = get_data_range(symbol, cursor)
+        latest_data_time = data_range['max_time']
+
+        if last_processed_time:
+            print(f"{symbol}: Last processed {last_processed_time}")
+            print(f"{symbol}: Latest data     {latest_data_time}")
+
+            if last_processed_time >= latest_data_time:
+                print(f"{symbol}: No new data - skipping")
+                stats['symbols_skipped'].append(symbol)
+                continue
+            else:
+                print(f"{symbol}: New data detected - reprocessing all swings")
+        else:
+            print(f"{symbol}: No previous processing found - running full detection")
+
+        # Delete existing swings
+        deleted = delete_swings(conn, symbol)
+        if deleted > 0:
+            print(f"Deleted {deleted} existing {symbol} swings")
+
+        # Detect all swings (re-run full detection to handle classification changes)
+        swings = detect_swings_for_symbol(conn, symbol)
+
+        # Insert into database
+        print("Inserting swings into database...")
+        insert_counts = insert_swings(conn, symbol, swings)
+
+        print(f"\n{symbol} Complete:")
+        print(f"  Total Swings: {len(swings)}")
+        print(f"  Class 1: {insert_counts[1]}")
+        print(f"  Class 2: {insert_counts[2]}")
+        print(f"  Class 3: {insert_counts[3]}")
+        print(f"  Class 4: {insert_counts[4]}")
+        print(f"  Class 5: {insert_counts[5]}")
+        print(f"  Class 6: {insert_counts[6]}")
+
+        stats['total_swings'] += len(swings)
+        stats['by_symbol'][symbol] = {
+            'count': len(swings),
+            'by_class': insert_counts
+        }
+        stats['symbols_processed'].append(symbol)
+
+    return stats
 
 
 def main():
     """Main processing function."""
+    parser = argparse.ArgumentParser(
+        description='Detect hierarchical swings (Class 1-6) from 4H OHLC data',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Full mode (delete and recalculate all swings)
+  python detect_swings.py --full
+
+  # Incremental mode (only process if new data exists)
+  python detect_swings.py --incremental
+
+  # Process specific symbol
+  python detect_swings.py --incremental --symbol ES
+        """
+    )
+
+    parser.add_argument('--full', action='store_true',
+                        help='Full mode: Delete and recalculate all swings')
+    parser.add_argument('--incremental', action='store_true',
+                        help='Incremental mode: Only process if new data exists')
+    parser.add_argument('--symbol', type=str,
+                        help='Process only this symbol (ES or NQ)')
+
+    args = parser.parse_args()
+
+    # Default to incremental mode if neither specified
+    if not args.full and not args.incremental:
+        args.incremental = True
+
+    symbols = [args.symbol.upper()] if args.symbol else ['ES', 'NQ']
+
     print("="*80)
     print("Swing Detection - Yearly/Monthly Database")
     print("="*80)
@@ -596,9 +796,31 @@ def main():
     conn = get_db_connection()
 
     try:
-        # Process both symbols
-        for symbol in ['ES', 'NQ']:
-            process_symbol(conn, symbol)
+        # Process based on mode
+        if args.full:
+            stats = process_full(conn, symbols)
+        else:
+            stats = process_incremental(conn, symbols)
+
+        # Update processing metadata for each symbol
+        cursor = conn.cursor()
+        for symbol in symbols:
+            if symbol in stats.get('symbols_skipped', []):
+                # Skipped - don't update metadata
+                continue
+
+            data_range = get_data_range(symbol, cursor)
+            if data_range['max_time']:
+                swing_count = stats['by_symbol'].get(symbol, {}).get('count', 0)
+                update_processing_metadata(
+                    symbol=symbol,
+                    process_type='swing_detection',
+                    last_time=data_range['max_time'],
+                    records_count=swing_count,
+                    status='success',
+                    cursor=cursor,
+                    commit=False
+                )
 
         # Commit all changes
         conn.commit()
@@ -638,13 +860,14 @@ def main():
             print(f"  Class {row['swing_class']}: {row['count']}")
 
         # POI linkage stats
-        cursor.execute("""
-            SELECT COUNT(*) as count
-            FROM swings
-            WHERE nearest_poi_event_id IS NOT NULL
-        """)
-        linked = cursor.fetchone()['count']
-        print(f"\nSwings linked to POI events: {linked} ({100*linked/total:.1f}%)")
+        if total > 0:
+            cursor.execute("""
+                SELECT COUNT(*) as count
+                FROM swings
+                WHERE nearest_poi_event_id IS NOT NULL
+            """)
+            linked = cursor.fetchone()['count']
+            print(f"\nSwings linked to POI events: {linked} ({100*linked/total:.1f}%)")
 
         print("\n[DONE] Swing detection complete!")
 
