@@ -8,14 +8,25 @@ in the yearly_monthly.db database. It:
 2. Tracks session status through the state machine (unbroken → break → return → resolved)
 3. Creates POI events with Echo Chamber data (ES/NQ timing)
 4. Updates session status as events occur
+5. Supports incremental processing to only scan new candles
 
 Usage:
-    python process_poi_events.py
+    # Full mode (scan all candles from TO time)
+    python process_poi_events.py --full
+
+    # Incremental mode (only scan new candles since last check)
+    python process_poi_events.py --incremental
 """
 
 import sqlite3
+import argparse
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, List, Tuple
+from metadata_helpers import (
+    get_last_processed_time,
+    update_processing_metadata,
+    get_data_range
+)
 
 
 # ============================================================================
@@ -150,16 +161,43 @@ def detect_touch(candle: Dict, poi_type: str, poi_value: float) -> bool:
     return candle['low'] <= poi_value <= candle['high']
 
 
-def get_candles_after_to(conn: sqlite3.Connection, symbol: str, to_time: str) -> List[Dict]:
-    """Get all 4H candles for a symbol after the TO time."""
+def get_candles_after_time(
+    conn: sqlite3.Connection,
+    symbol: str,
+    start_time: str,
+    end_time: Optional[str] = None
+) -> List[Dict]:
+    """
+    Get all 4H candles for a symbol after start_time.
+
+    Args:
+        conn: Database connection
+        symbol: 'ES' or 'NQ'
+        start_time: ISO timestamp to start scanning from
+        end_time: Optional ISO timestamp to end scanning (inclusive)
+
+    Returns:
+        List of candle dictionaries
+    """
     cursor = conn.cursor()
-    cursor.execute("""
-        SELECT time, open, high, low, close
-        FROM ohlc_4h
-        WHERE symbol = ?
-        AND time >= ?
-        ORDER BY time ASC
-    """, (symbol, to_time))
+
+    if end_time:
+        cursor.execute("""
+            SELECT time, open, high, low, close
+            FROM ohlc_4h
+            WHERE symbol = ?
+            AND time >= ?
+            AND time <= ?
+            ORDER BY time ASC
+        """, (symbol, start_time, end_time))
+    else:
+        cursor.execute("""
+            SELECT time, open, high, low, close
+            FROM ohlc_4h
+            WHERE symbol = ?
+            AND time >= ?
+            ORDER BY time ASC
+        """, (symbol, start_time))
 
     return [dict(row) for row in cursor.fetchall()]
 
@@ -393,8 +431,21 @@ def get_matching_session(conn: sqlite3.Connection, session: Dict, target_symbol:
     return dict(result) if result else None
 
 
-def process_session(conn: sqlite3.Connection, session: Dict):
-    """Process POI events for a single session (both ES and NQ)."""
+def process_session(
+    conn: sqlite3.Connection,
+    session: Dict,
+    incremental: bool = False,
+    latest_data_time: Optional[str] = None
+):
+    """
+    Process POI events for a single session (both ES and NQ).
+
+    Args:
+        conn: Database connection
+        session: Session dictionary (ES session)
+        incremental: If True, only scan candles after last_poi_check_time
+        latest_data_time: Latest data timestamp (for end_time in incremental mode)
+    """
     # Only process ES sessions (to avoid duplicate processing)
     if session['symbol'] != 'ES':
         return
@@ -421,15 +472,43 @@ def process_session(conn: sqlite3.Connection, session: Dict):
     es_session_id = session['id']
     nq_session_id = nq_session['id']
 
+    # Determine scan range
+    if incremental:
+        # Use last_poi_check_time if available, otherwise use to_time
+        es_scan_start = session.get('last_poi_check_time') or to_time
+        nq_scan_start = nq_session.get('last_poi_check_time') or to_time
+
+        # Skip if already processed all available data
+        if latest_data_time and es_scan_start >= latest_data_time:
+            return
+    else:
+        # Full mode: scan from TO time
+        es_scan_start = to_time
+        nq_scan_start = to_time
+
     print(f"\nProcessing: {session_name}")
     print(f"  ES Session ID: {es_session_id}, NQ Session ID: {nq_session_id}")
     print(f"  ES Range: PoC={session['poc']:.2f} <-- TO={session['true_open']:.2f} --> RPP={session['rpp']:.2f}")
     print(f"  NQ Range: PoC={nq_session['poc']:.2f} <-- TO={nq_session['true_open']:.2f} --> RPP={nq_session['rpp']:.2f}")
     print(f"  ES Status: {session['status']}, NQ Status: {nq_session['status']}")
 
+    if incremental:
+        print(f"  Mode: Incremental (ES from {es_scan_start}, NQ from {nq_scan_start})")
+    else:
+        print(f"  Mode: Full (from TO time)")
+
+    # Track the latest candle time we process for each symbol
+    latest_es_time = es_scan_start
+    latest_nq_time = nq_scan_start
+
     # Process both ES and NQ
     for symbol in ['ES', 'NQ']:
-        candles = get_candles_after_to(conn, symbol, to_time)
+        if symbol == 'ES':
+            scan_start = es_scan_start
+        else:
+            scan_start = nq_scan_start
+
+        candles = get_candles_after_time(conn, symbol, scan_start, latest_data_time)
 
         print(f"  {symbol}: {len(candles)} candles to check")
 
@@ -448,6 +527,16 @@ def process_session(conn: sqlite3.Connection, session: Dict):
 
         for candle in candles:
             candle_time = candle['time']
+
+            # Skip the TO candle itself - it's the definition/reference point, not a touch
+            if candle_time == to_time:
+                continue
+
+            # Track latest candle time for this symbol
+            if symbol == 'ES':
+                latest_es_time = candle_time
+            else:
+                latest_nq_time = candle_time
 
             # Check each POI level in order
             for poi_type, poi_value in [('PoC', poc), ('RPP', rpp), ('TO', to)]:
@@ -496,17 +585,74 @@ def process_session(conn: sqlite3.Connection, session: Dict):
                     # (Don't process multiple POI types in same candle)
                     break
 
+    # Update last_poi_check_time for both sessions after processing
+    cursor = conn.cursor()
+    now = datetime.now(timezone.utc).isoformat()
+
+    cursor.execute("""
+        UPDATE sessions
+        SET last_poi_check_time = ?,
+            updated_at = ?
+        WHERE id = ?
+    """, (latest_es_time, now, es_session_id))
+
+    cursor.execute("""
+        UPDATE sessions
+        SET last_poi_check_time = ?,
+            updated_at = ?
+        WHERE id = ?
+    """, (latest_nq_time, now, nq_session_id))
+
 
 def main():
     """Main processing function."""
+    parser = argparse.ArgumentParser(
+        description='Process POI events for Yearly and Monthly sessions',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Full mode (scan all candles from TO time)
+  python process_poi_events.py --full
+
+  # Incremental mode (only scan new candles since last check)
+  python process_poi_events.py --incremental
+        """
+    )
+
+    parser.add_argument('--full', action='store_true',
+                        help='Full mode: Scan all candles from TO time')
+    parser.add_argument('--incremental', action='store_true',
+                        help='Incremental mode: Only scan new candles since last check')
+
+    args = parser.parse_args()
+
+    # Default to incremental mode if neither specified
+    if not args.full and not args.incremental:
+        args.incremental = True
+
     print("=" * 80)
     print("POI Event Processing - Yearly and Monthly Sessions")
     print("=" * 80)
+    print()
+
+    if args.full:
+        print("MODE: Full Processing (scan all candles from TO time)")
+    else:
+        print("MODE: Incremental Processing (scan only new candles)")
+
+    print()
 
     conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
+        # Get latest data time from ohlc_4h table
+        cursor.execute("SELECT MAX(time) FROM ohlc_4h")
+        latest_data_time = cursor.fetchone()[0]
+
+        print(f"Latest data available: {latest_data_time}")
+        print()
+
         # Get all sessions ordered by start time
         cursor.execute("""
             SELECT *
@@ -516,17 +662,71 @@ def main():
 
         sessions = [dict(row) for row in cursor.fetchall()]
 
-        print(f"\nFound {len(sessions)} sessions to process")
-        print(f"Processing sessions chronologically...")
+        print(f"Found {len(sessions)} total sessions")
+
+        # Filter sessions that need processing in incremental mode
+        if args.incremental:
+            # Filter out sessions that are already up-to-date
+            sessions_to_process = []
+            for session in sessions:
+                # Only process ES sessions (NQ sessions are handled together)
+                if session['symbol'] != 'ES':
+                    continue
+
+                # Skip if no range calculated yet
+                if session['true_open'] is None:
+                    continue
+
+                # Get last check time
+                last_check = session.get('last_poi_check_time') or session['to_time']
+
+                # Process if there's new data since last check
+                if last_check < latest_data_time:
+                    sessions_to_process.append(session)
+
+            print(f"Sessions needing incremental update: {len(sessions_to_process)}")
+        else:
+            # Full mode: process all ES sessions with calculated ranges
+            sessions_to_process = [s for s in sessions if s['symbol'] == 'ES' and s['true_open'] is not None]
+            print(f"Sessions to process (ES only): {len(sessions_to_process)}")
+
+        print()
+        print("Processing sessions chronologically...")
 
         processed_count = 0
+        events_created = 0
 
-        for session in sessions:
-            process_session(conn, session)
+        # Track events before processing
+        cursor.execute("SELECT COUNT(*) as count FROM poi_events")
+        events_before = cursor.fetchone()['count']
+
+        for session in sessions_to_process:
+            process_session(
+                conn,
+                session,
+                incremental=args.incremental,
+                latest_data_time=latest_data_time
+            )
             processed_count += 1
 
         # Commit all changes
         conn.commit()
+
+        # Track events after processing
+        cursor.execute("SELECT COUNT(*) as count FROM poi_events")
+        events_after = cursor.fetchone()['count']
+        events_created = events_after - events_before
+
+        # Update processing metadata
+        update_processing_metadata(
+            symbol='ES',  # Track for ES as representative
+            process_type='poi_events',
+            last_time=latest_data_time,
+            records_count=events_created,
+            status='success',
+            cursor=cursor,
+            commit=True
+        )
 
         print("\n" + "=" * 80)
         print("Processing Complete!")
@@ -548,38 +748,44 @@ def main():
         cursor.execute("SELECT COUNT(*) as count FROM sessions WHERE status = 'unbroken'")
         unbroken_count = cursor.fetchone()['count']
 
-        print(f"\nSummary:")
-        print(f"  Total POI Events: {event_count}")
+        print(f"\nProcessing Summary:")
+        print(f"  Sessions processed: {processed_count}")
+        print(f"  POI events created: {events_created}")
+
+        print(f"\nTotal POI Events: {event_count}")
         print(f"\nSession Status:")
         print(f"  Resolved: {resolved_count}")
         print(f"  Return: {return_count}")
         print(f"  Break: {break_count}")
         print(f"  Unbroken: {unbroken_count}")
 
-        # Show some sample events
-        print("\nSample POI Events (first 10):")
-        cursor.execute("""
-            SELECT
-                trading_day,
-                session_name,
-                poi_type,
-                event_type,
-                es_event_time,
-                nq_event_time,
-                time_delta_minutes,
-                leader
-            FROM poi_events
-            ORDER BY created_at ASC
-            LIMIT 10
-        """)
+        # Show some recent events
+        if events_created > 0:
+            print(f"\nRecent POI Events (last {min(10, events_created)}):")
+            cursor.execute("""
+                SELECT
+                    trading_day,
+                    session_name,
+                    poi_type,
+                    event_type,
+                    es_event_time,
+                    nq_event_time,
+                    time_delta_minutes,
+                    leader
+                FROM poi_events
+                ORDER BY created_at DESC
+                LIMIT 10
+            """)
 
-        for row in cursor.fetchall():
-            row = dict(row)
-            print(f"\n  {row['session_name']} - {row['poi_type']} {row['event_type']}")
-            print(f"    ES: {row['es_event_time'] or 'N/A'}")
-            print(f"    NQ: {row['nq_event_time'] or 'N/A'}")
-            if row['leader']:
-                print(f"    Leader: {row['leader']} (Delta {row['time_delta_minutes']} min)")
+            for row in cursor.fetchall():
+                row = dict(row)
+                print(f"\n  {row['session_name']} - {row['poi_type']} {row['event_type']}")
+                print(f"    ES: {row['es_event_time'] or 'N/A'}")
+                print(f"    NQ: {row['nq_event_time'] or 'N/A'}")
+                if row['leader']:
+                    print(f"    Leader: {row['leader']} (Delta {row['time_delta_minutes']} min)")
+
+        print()
 
     except Exception as e:
         conn.rollback()

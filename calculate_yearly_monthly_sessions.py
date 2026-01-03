@@ -19,9 +19,21 @@ Usage:
 """
 
 import sqlite3
+import argparse
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 import pytz
+from metadata_helpers import (
+    get_last_processed_time,
+    update_processing_metadata,
+    get_data_range
+)
+from affected_sessions import (
+    find_affected_sessions,
+    mark_sessions_for_recalc,
+    clear_recalc_flag,
+    get_sessions_needing_recalc
+)
 
 # Database path
 DB_PATH = 'data/yearly_monthly.db'
@@ -544,19 +556,83 @@ def insert_session(conn: sqlite3.Connection, session: Dict) -> bool:
         return False
 
 
-def main():
-    """Main processing function."""
-    print("=" * 80)
-    print("Yearly and Monthly Session Calculation")
-    print("=" * 80)
-    print()
+def update_session_ranges(
+    conn: sqlite3.Connection,
+    session_id: int,
+    true_open: float,
+    poc: float,
+    rpp: float
+) -> bool:
+    """
+    Update PoC/TO/RPP ranges for an existing session.
 
-    # Connect to database
-    conn = sqlite3.connect(DB_PATH)
+    Args:
+        conn: Database connection
+        session_id: Session ID to update
+        true_open: New true open value
+        poc: New PoC value
+        rpp: New RPP value
+
+    Returns:
+        bool: True if updated, False if no changes
+    """
+    cursor = conn.cursor()
+    now = datetime.now(ET).isoformat()
+
+    # Check if values actually changed
+    cursor.execute("""
+        SELECT true_open, poc, rpp
+        FROM sessions
+        WHERE id = ?
+    """, (session_id,))
+
+    result = cursor.fetchone()
+    if not result:
+        return False
+
+    old_to, old_poc, old_rpp = result
+
+    # Round to 2 decimal places for comparison
+    if (round(old_to, 2) == round(true_open, 2) and
+        round(old_poc, 2) == round(poc, 2) and
+        round(old_rpp, 2) == round(rpp, 2)):
+        # No changes
+        return False
+
+    # Update ranges
+    cursor.execute("""
+        UPDATE sessions
+        SET true_open = ?,
+            poc = ?,
+            rpp = ?,
+            updated_at = ?
+        WHERE id = ?
+    """, (true_open, poc, rpp, now, session_id))
+
+    return True
+
+
+def process_full(conn: sqlite3.Connection, symbols: List[str]) -> Dict:
+    """
+    Full processing mode: Calculate all sessions from scratch.
+
+    Args:
+        conn: Database connection
+        symbols: List of symbols to process
+
+    Returns:
+        Dictionary with processing statistics
+    """
+    cursor = conn.cursor()
+    stats = {
+        'yearly_inserted': 0,
+        'yearly_skipped': 0,
+        'monthly_inserted': 0,
+        'monthly_skipped': 0
+    }
 
     # Get data range
-    cursor = conn.cursor()
-    cursor.execute("SELECT MIN(time), MAX(time) FROM ohlc_4h WHERE symbol = 'ES'")
+    cursor.execute("SELECT MIN(time), MAX(time) FROM ohlc_4h WHERE symbol = ?", (symbols[0],))
     min_time, max_time = cursor.fetchone()
 
     print(f"4H Data Range: {min_time} to {max_time}")
@@ -569,16 +645,11 @@ def main():
     start_year = min_date.year
     end_year = max_date.year
 
-    symbols = ['ES', 'NQ']
-
     # ========================================================================
     # Calculate Yearly Sessions
     # ========================================================================
     print("YEARLY SESSIONS")
     print("-" * 80)
-
-    yearly_count = 0
-    yearly_skipped = 0
 
     for year in range(start_year, end_year + 1):
         for symbol in symbols:
@@ -587,17 +658,17 @@ def main():
             if session:
                 inserted = insert_session(conn, session)
                 if inserted:
-                    yearly_count += 1
+                    stats['yearly_inserted'] += 1
                     print(f"[+] {year} Yearly {symbol}: TO={session['true_open']:.2f}, "
                           f"PoC={session['poc']:.2f}, RPP={session['rpp']:.2f}")
                 else:
-                    yearly_skipped += 1
+                    stats['yearly_skipped'] += 1
                     print(f"[SKIP] {year} Yearly {symbol}: Already exists")
             else:
-                yearly_skipped += 1
+                stats['yearly_skipped'] += 1
 
     print()
-    print(f"Yearly Sessions: {yearly_count} inserted, {yearly_skipped} skipped")
+    print(f"Yearly Sessions: {stats['yearly_inserted']} inserted, {stats['yearly_skipped']} skipped")
     print()
 
     # ========================================================================
@@ -605,9 +676,6 @@ def main():
     # ========================================================================
     print("MONTHLY SESSIONS")
     print("-" * 80)
-
-    monthly_count = 0
-    monthly_skipped = 0
 
     for year in range(start_year, end_year + 1):
         for month in range(1, 13):
@@ -621,52 +689,260 @@ def main():
                 if session:
                     inserted = insert_session(conn, session)
                     if inserted:
-                        monthly_count += 1
+                        stats['monthly_inserted'] += 1
                         print(f"[+] {year}-{month:02d} Monthly {symbol}: "
                               f"TO={session['true_open']:.2f}, "
                               f"PoC={session['poc']:.2f}, RPP={session['rpp']:.2f}")
                     else:
-                        monthly_skipped += 1
+                        stats['monthly_skipped'] += 1
                         print(f"[SKIP] {year}-{month:02d} Monthly {symbol}: Already exists")
                 else:
-                    monthly_skipped += 1
+                    stats['monthly_skipped'] += 1
 
     print()
-    print(f"Monthly Sessions: {monthly_count} inserted, {monthly_skipped} skipped")
+    print(f"Monthly Sessions: {stats['monthly_inserted']} inserted, {stats['monthly_skipped']} skipped")
     print()
 
-    # Commit changes
-    conn.commit()
+    return stats
 
-    # ========================================================================
-    # Summary
-    # ========================================================================
+
+def process_incremental(conn: sqlite3.Connection, symbols: List[str], new_data_range: Tuple[str, str] = None) -> Dict:
+    """
+    Incremental processing mode: Only recalculate affected sessions.
+
+    Args:
+        conn: Database connection
+        symbols: List of symbols to process
+        new_data_range: Optional tuple of (start_time, end_time) for new data
+
+    Returns:
+        Dictionary with processing statistics
+    """
+    stats = {
+        'recalculated': 0,
+        'created': 0,
+        'unchanged': 0
+    }
+
+    # If no new_data_range provided, use last processed time from metadata
+    if new_data_range is None:
+        # Get the last week of data as a conservative range
+        data_range = get_data_range(symbols[0])
+        if data_range['max_time']:
+            max_time = datetime.fromisoformat(data_range['max_time'])
+            start_time = max_time - timedelta(days=30)  # Last 30 days
+            new_data_range = (start_time.isoformat(), max_time.isoformat())
+        else:
+            print("[ERROR] No data found in database")
+            return stats
+
+    new_data_start, new_data_end = new_data_range
+
+    print(f"Incremental Mode")
+    print(f"New Data Range: {new_data_start} to {new_data_end}")
+    print()
+
+    for symbol in symbols:
+        print(f"Processing {symbol}...")
+        print("-" * 80)
+
+        # Find affected sessions
+        sessions_to_recalc, sessions_to_scan, new_periods = find_affected_sessions(
+            conn, symbol, new_data_start, new_data_end
+        )
+
+        print(f"  Affected sessions: {len(sessions_to_recalc)}")
+        print(f"  New session periods: {len(new_periods)}")
+        print()
+
+        # Recalculate affected sessions
+        for session_dict in sessions_to_recalc:
+            session_type = session_dict['session_type']
+            session_id = session_dict['id']
+
+            # Recalculate based on type
+            if session_type == 'Yearly':
+                # Extract year from session name (e.g., "Year 2019")
+                year = int(session_dict['session_name'].replace('Year ', ''))
+                new_session = calculate_yearly_session(conn, year, symbol)
+            else:  # Monthly
+                # Extract year/month from session name (e.g., "January 2019")
+                parts = session_dict['session_name'].split()
+                month_name, year_str = parts[0], parts[1]
+                year = int(year_str)
+                month = datetime.strptime(month_name, '%B').month
+                new_session = calculate_monthly_session(conn, year, month, symbol)
+
+            if new_session:
+                # Update the session ranges
+                changed = update_session_ranges(
+                    conn,
+                    session_id,
+                    new_session['true_open'],
+                    new_session['poc'],
+                    new_session['rpp']
+                )
+
+                if changed:
+                    stats['recalculated'] += 1
+                    print(f"  [UPDATE] {session_dict['session_name']}: "
+                          f"TO={new_session['true_open']:.2f}, "
+                          f"PoC={new_session['poc']:.2f}, RPP={new_session['rpp']:.2f}")
+                else:
+                    stats['unchanged'] += 1
+                    print(f"  [OK] {session_dict['session_name']}: No changes")
+
+                # Clear recalc flag
+                clear_recalc_flag(conn, session_id)
+
+        # Create new sessions
+        for period in new_periods:
+            if period['type'] == 'Yearly':
+                session = calculate_yearly_session(conn, period['year'], symbol)
+                if session:
+                    inserted = insert_session(conn, session)
+                    if inserted:
+                        stats['created'] += 1
+                        print(f"  [NEW] Year {period['year']}: "
+                              f"TO={session['true_open']:.2f}, "
+                              f"PoC={session['poc']:.2f}, RPP={session['rpp']:.2f}")
+            else:  # Monthly
+                session = calculate_monthly_session(conn, period['year'], period['month'], symbol)
+                if session:
+                    inserted = insert_session(conn, session)
+                    if inserted:
+                        stats['created'] += 1
+                        month_name = datetime(period['year'], period['month'], 1).strftime('%B')
+                        print(f"  [NEW] {month_name} {period['year']}: "
+                              f"TO={session['true_open']:.2f}, "
+                              f"PoC={session['poc']:.2f}, RPP={session['rpp']:.2f}")
+
+        print()
+
+    return stats
+
+
+def main():
+    """Main processing function."""
+    parser = argparse.ArgumentParser(
+        description='Calculate Yearly and Monthly sessions from 4H OHLC data',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Full mode (calculate all sessions from scratch)
+  python calculate_yearly_monthly_sessions.py --full
+
+  # Incremental mode (only recalculate affected sessions)
+  python calculate_yearly_monthly_sessions.py --incremental
+
+  # Process specific symbol
+  python calculate_yearly_monthly_sessions.py --incremental --symbol ES
+        """
+    )
+
+    parser.add_argument('--full', action='store_true',
+                        help='Full mode: Calculate all sessions from scratch')
+    parser.add_argument('--incremental', action='store_true',
+                        help='Incremental mode: Only recalculate affected sessions')
+    parser.add_argument('--symbol', type=str,
+                        help='Process only this symbol (ES or NQ)')
+
+    args = parser.parse_args()
+
+    # Default to full mode if neither specified
+    if not args.full and not args.incremental:
+        args.full = True
+
+    symbols = [args.symbol.upper()] if args.symbol else ['ES', 'NQ']
+
     print("=" * 80)
-    print("SUMMARY")
+    print("Yearly and Monthly Session Calculation")
     print("=" * 80)
-
-    cursor.execute("""
-        SELECT session_type, COUNT(*)
-        FROM sessions
-        GROUP BY session_type
-        ORDER BY session_type
-    """)
-
-    for session_type, count in cursor.fetchall():
-        print(f"{session_type:10s}: {count:4d} sessions")
-
     print()
 
-    # Total sessions
-    cursor.execute("SELECT COUNT(*) FROM sessions")
-    total = cursor.fetchone()[0]
-    print(f"{'Total':10s}: {total:4d} sessions")
-    print()
+    # Connect to database
+    conn = sqlite3.connect(DB_PATH)
 
-    conn.close()
+    try:
+        if args.full:
+            print("MODE: Full Processing")
+            print()
+            stats = process_full(conn, symbols)
 
-    print("[DONE] Processing complete!")
-    print()
+            # Update metadata
+            cursor = conn.cursor()
+            for symbol in symbols:
+                data_range = get_data_range(symbol, cursor)
+                if data_range['max_time']:
+                    update_processing_metadata(
+                        symbol=symbol,
+                        process_type='session_calc',
+                        last_time=data_range['max_time'],
+                        records_count=stats['yearly_inserted'] + stats['monthly_inserted'],
+                        status='success',
+                        cursor=cursor,
+                        commit=False
+                    )
+
+        else:  # Incremental
+            print("MODE: Incremental Processing")
+            print()
+            stats = process_incremental(conn, symbols)
+
+            # Update metadata
+            cursor = conn.cursor()
+            for symbol in symbols:
+                data_range = get_data_range(symbol, cursor)
+                if data_range['max_time']:
+                    update_processing_metadata(
+                        symbol=symbol,
+                        process_type='session_calc',
+                        last_time=data_range['max_time'],
+                        records_count=stats['recalculated'] + stats['created'],
+                        status='success',
+                        cursor=cursor,
+                        commit=False
+                    )
+
+        # Commit changes
+        conn.commit()
+
+        # ========================================================================
+        # Summary
+        # ========================================================================
+        print("=" * 80)
+        print("SUMMARY")
+        print("=" * 80)
+
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT session_type, COUNT(*)
+            FROM sessions
+            GROUP BY session_type
+            ORDER BY session_type
+        """)
+
+        for session_type, count in cursor.fetchall():
+            print(f"{session_type:10s}: {count:4d} sessions")
+
+        print()
+
+        # Total sessions
+        cursor.execute("SELECT COUNT(*) FROM sessions")
+        total = cursor.fetchone()[0]
+        print(f"{'Total':10s}: {total:4d} sessions")
+        print()
+
+        print("[DONE] Processing complete!")
+        print()
+
+    except Exception as e:
+        print(f"\n[ERROR] {e}")
+        conn.rollback()
+        raise
+
+    finally:
+        conn.close()
 
 
 if __name__ == '__main__':
