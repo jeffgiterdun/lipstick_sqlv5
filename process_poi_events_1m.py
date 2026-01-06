@@ -400,6 +400,17 @@ def update_session_status(
         elif poi_type == 'TO':
             # Resolution (second return to TO)
             if session['second_break_time'] is not None:
+                # CRITICAL VALIDATION: Resolution MUST occur after first_return
+                # This prevents resolution_time from being set to timestamps from the 'unbroken' state
+                if session['first_return_time'] is None:
+                    # No first return yet - this shouldn't happen, but guard against it
+                    return False
+
+                if event_time <= session['first_return_time']:
+                    # Resolution time must be AFTER return time - ignore this touch
+                    # This prevents the bug where resolution_time < first_return_time
+                    return False
+
                 # Determine resolution type
                 resolution_type = 'single_sided' if session['first_break_side'] == session['second_break_side'] else 'double_sided'
 
