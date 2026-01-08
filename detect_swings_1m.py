@@ -31,7 +31,6 @@ Usage:
 """
 
 import sqlite3
-import json
 import argparse
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
@@ -302,7 +301,7 @@ def find_nearest_poi_event(
     conn: sqlite3.Connection,
     symbol: str,
     swing_time: str
-) -> Optional[int]:
+) -> Tuple[Optional[int], Optional[str]]:
     """
     Find the nearest POI event at or before the swing time.
 
@@ -312,7 +311,7 @@ def find_nearest_poi_event(
         swing_time: ISO timestamp of the swing
 
     Returns:
-        POI event ID or None
+        Tuple of (POI event ID or None, POI event time or None)
     """
     cursor = conn.cursor()
 
@@ -321,7 +320,7 @@ def find_nearest_poi_event(
 
     # Find most recent POI event where event_time <= swing_time
     cursor.execute(f"""
-        SELECT id
+        SELECT id, {time_column} as event_time
         FROM poi_events
         WHERE {time_column} IS NOT NULL
         AND {time_column} <= ?
@@ -330,46 +329,9 @@ def find_nearest_poi_event(
     """, (swing_time,))
 
     result = cursor.fetchone()
-    return result['id'] if result else None
-
-
-# ============================================================================
-# Active Sessions Snapshot
-# ============================================================================
-
-def get_active_sessions_snapshot(
-    conn: sqlite3.Connection,
-    symbol: str,
-    swing_time: str
-) -> str:
-    """
-    Get JSON snapshot of all active sessions at swing time.
-
-    Args:
-        conn: Database connection
-        symbol: 'ES' or 'NQ'
-        swing_time: ISO timestamp of the swing
-
-    Returns:
-        JSON string with session_name: status mappings
-    """
-    cursor = conn.cursor()
-
-    # Get all sessions for this symbol that were active at swing_time
-    cursor.execute("""
-        SELECT session_name, status
-        FROM sessions
-        WHERE symbol = ?
-        AND session_start_time <= ?
-        AND (status != 'resolved' OR resolution_time >= ?)
-        ORDER BY session_name
-    """, (symbol, swing_time, swing_time))
-
-    sessions = {}
-    for row in cursor.fetchall():
-        sessions[row['session_name']] = row['status']
-
-    return json.dumps(sessions)
+    if result:
+        return result['id'], result['event_time']
+    return None, None
 
 
 # ============================================================================
@@ -430,16 +392,21 @@ def insert_swings(
     # First pass: Insert all swings and capture IDs
     for swing in swings:
         # Find POI event linkage
-        poi_event_id = find_nearest_poi_event(conn, symbol, swing['time'])
+        poi_event_id, poi_event_time = find_nearest_poi_event(conn, symbol, swing['time'])
 
-        # Get active sessions snapshot
-        sessions_snapshot = get_active_sessions_snapshot(conn, symbol, swing['time'])
+        # Calculate candles from POI event (time difference in minutes for 1M data)
+        candles_from_poi = None
+        if poi_event_time:
+            swing_dt = parse_iso_timestamp(swing['time'])
+            poi_dt = parse_iso_timestamp(poi_event_time)
+            time_delta = swing_dt - poi_dt
+            candles_from_poi = int(time_delta.total_seconds() / 60)  # 1M candles = 1 minute each
 
         cursor.execute("""
             INSERT INTO swings (
                 symbol, swing_time, swing_price, swing_type, swing_class,
                 prior_opposite_swing_id, points_from_prior, candles_from_prior,
-                nearest_poi_event_id, active_sessions_snapshot, created_at
+                nearest_poi_event_id, candles_from_poi_event, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             symbol,
@@ -451,7 +418,7 @@ def insert_swings(
             swing['points_from_prior'],
             swing['candles_from_prior'],
             poi_event_id,
-            sessions_snapshot,
+            candles_from_poi,
             now
         ))
 
