@@ -32,3 +32,18 @@ Thumbs.db
 Raw CSV Data/
 Raw 4H CSV Data/
 data/*.db
+
+# Output files
+*_output.txt
+poi_processing_output.txt
+
+# Database auxiliary files
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Claude Code settings (local only)
+.claude/settings.local.json
+
+# Documentation text files (personal notes)
+docs/*.txt
