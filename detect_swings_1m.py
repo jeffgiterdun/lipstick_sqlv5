@@ -65,8 +65,11 @@ def detect_class1_pivots(candles: List[Dict]) -> List[Dict]:
     """
     Detect Class 1 swings (3-bar pivots).
 
-    A swing high: middle candle's high > both adjacent candles' highs
-    A swing low: middle candle's low < both adjacent candles' lows
+    A swing high: middle candle's high >= both adjacent candles' highs
+    A swing low: middle candle's low <= both adjacent candles' lows
+
+    Note: Using >= and <= to handle equal highs/lows, ensuring that when
+    adjacent candles have the same price, at least one is detected as a swing.
 
     Args:
         candles: List of OHLC candles (must be sorted by time)
@@ -91,9 +94,9 @@ def detect_class1_pivots(candles: List[Dict]) -> List[Dict]:
         curr_candle = candles[i]
         next_candle = candles[i + 1]
 
-        # Check for swing high
-        if (curr_candle['high'] > prev_candle['high'] and
-            curr_candle['high'] > next_candle['high']):
+        # Check for swing high (using >= to handle equal highs)
+        if (curr_candle['high'] >= prev_candle['high'] and
+            curr_candle['high'] >= next_candle['high']):
             swings.append({
                 'index': i,
                 'time': curr_candle['time'],
@@ -102,9 +105,9 @@ def detect_class1_pivots(candles: List[Dict]) -> List[Dict]:
                 'class': 1
             })
 
-        # Check for swing low
-        elif (curr_candle['low'] < prev_candle['low'] and
-              curr_candle['low'] < next_candle['low']):
+        # Check for swing low (using <= to handle equal lows)
+        elif (curr_candle['low'] <= prev_candle['low'] and
+              curr_candle['low'] <= next_candle['low']):
             swings.append({
                 'index': i,
                 'time': curr_candle['time'],
@@ -175,13 +178,13 @@ def classify_to_target_class(
 
         # Compare prices to adjacent neighbors in the list
         if swing_type == 'high':
-            # For highs: must be HIGHER than both adjacent highs
-            if curr['price'] > left['price'] and curr['price'] > right['price']:
+            # For highs: must be HIGHER than or EQUAL to both adjacent highs
+            if curr['price'] >= left['price'] and curr['price'] >= right['price']:
                 curr['class'] = target_class
                 promoted_count += 1
         else:  # 'low'
-            # For lows: must be LOWER than both adjacent lows
-            if curr['price'] < left['price'] and curr['price'] < right['price']:
+            # For lows: must be LOWER than or EQUAL to both adjacent lows
+            if curr['price'] <= left['price'] and curr['price'] <= right['price']:
                 curr['class'] = target_class
                 promoted_count += 1
 
@@ -222,6 +225,65 @@ def classify_higher_swings(swings: List[Dict]) -> List[Dict]:
 
     # Recombine and sort by index
     all_swings = swing_highs + swing_lows
+    all_swings.sort(key=lambda s: s['index'])
+
+    return all_swings
+
+
+def remove_adjacent_duplicate_prices(swings: List[Dict]) -> List[Dict]:
+    """
+    Remove adjacent swings with the same price, keeping only the first occurrence.
+
+    When consecutive swings of the same type have the same price (no intervening
+    swings of that type), only the first one is kept. The duplicates are removed
+    entirely from the dataset.
+
+    This ensures that each price level is represented only once in the time series,
+    preventing incorrect promotions during hierarchical classification.
+
+    Args:
+        swings: List of swings (sorted by index)
+
+    Returns:
+        Filtered swings list with adjacent duplicates removed
+    """
+    # Separate into highs and lows
+    swing_highs = [s for s in swings if s['type'] == 'high']
+    swing_lows = [s for s in swings if s['type'] == 'low']
+
+    def filter_duplicates(swing_list: List[Dict], swing_type: str) -> List[Dict]:
+        """Remove adjacent duplicates from a list of swings of one type."""
+        if len(swing_list) <= 1:
+            return swing_list
+
+        filtered = []
+        i = 0
+        removed_count = 0
+
+        while i < len(swing_list):
+            # Keep the first swing at this price level
+            filtered.append(swing_list[i])
+
+            # Skip any consecutive swings with the same price
+            current_price = swing_list[i]['price']
+            j = i + 1
+            while j < len(swing_list) and swing_list[j]['price'] == current_price:
+                removed_count += 1
+                j += 1
+
+            i = j
+
+        if removed_count > 0:
+            print(f"    Removed {removed_count} duplicate adjacent {swing_type}s at same price")
+
+        return filtered
+
+    # Filter highs and lows separately
+    filtered_highs = filter_duplicates(swing_highs, 'high')
+    filtered_lows = filter_duplicates(swing_lows, 'low')
+
+    # Recombine and sort by index
+    all_swings = filtered_highs + filtered_lows
     all_swings.sort(key=lambda s: s['index'])
 
     return all_swings
@@ -470,6 +532,12 @@ def detect_swings_for_symbol(conn: sqlite3.Connection, symbol: str) -> List[Dict
     swings = detect_class1_pivots(candles)
     class1_count = len(swings)
     print(f"  Found {class1_count} Class 1 swings")
+
+    # Remove adjacent duplicate prices (keep only first occurrence)
+    print("Removing adjacent duplicate prices...")
+    swings = remove_adjacent_duplicate_prices(swings)
+    after_dedup_count = len(swings)
+    print(f"  After deduplication: {after_dedup_count} swings")
 
     # Hierarchically classify higher classes
     print("Classifying higher classes...")
