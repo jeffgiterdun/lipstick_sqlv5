@@ -210,14 +210,14 @@ WHERE time_delta_seconds > 300  -- >5 minute divergence
 ORDER BY time_delta_seconds DESC;
 ```
 
-### Find London PoC Breaks on Specific Date
+### Find London PoC First Breaks on Specific Date
 
 ```sql
 SELECT * FROM poi_events
 WHERE trading_day = '2025-12-16'
-AND session_name = 'London'
+AND session_name LIKE 'London%'
 AND poi_type = 'PoC'
-AND event_type = 'break';
+AND event_type = 'first_break';
 ```
 
 ### Find Major Swings Near POI Events

@@ -232,25 +232,27 @@ INSERT INTO sessions (
 
 ## poi_events Table
 
-**Purpose:** Record POI touches with echo chamber analysis built-in. ONE row per session POI event, captures BOTH ES and NQ timing and status.
+**Purpose:** Record POI touches with echo chamber analysis built-in. ONE row per session POI event, captures BOTH ES and NQ timing.
 
-**Key V5 Feature:** Single row contains both ES and NQ event timing.
+**Key V5 Feature:** Single row contains both ES and NQ event timing with dual session tracking.
 
-**Denormalized Columns:** Includes trading_day, symbol, session_type, and session_name for easy direct SQL querying without joins.
+**Denormalized Columns:** Includes trading_day, session_type, and session_name for easy direct SQL querying without joins.
 
 ```sql
 CREATE TABLE poi_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id INTEGER NOT NULL,  -- FK to sessions table
+
+    -- Dual session tracking (ES + NQ)
+    es_session_id INTEGER NOT NULL,
+    nq_session_id INTEGER NOT NULL,
 
     -- Denormalized session context (for easy querying)
     trading_day TEXT NOT NULL,  -- YYYY-MM-DD format (e.g., '2025-12-16')
-    symbol TEXT NOT NULL,  -- 'ES' or 'NQ'
     session_type TEXT NOT NULL,  -- 'Major', 'Minor', 'Weekly', 'Monthly', 'Yearly'
-    session_name TEXT NOT NULL,  -- 'London', 'm0900', 'Weekly', 'Monthly', 'Yearly'
+    session_name TEXT NOT NULL,  -- 'London 2025-12-16', 'm0900 2025-12-16', etc.
 
     poi_type TEXT NOT NULL,  -- 'PoC', 'RPP', 'TO'
-    event_type TEXT NOT NULL,  -- 'break', 'return', 'resolution'
+    event_type TEXT NOT NULL,  -- 'first_break', 'return', 'second_break_same', 'second_break_opposite', 'resolved'
 
     -- ES timing
     es_event_time TEXT,  -- NULL if ES hasn't touched yet
@@ -259,20 +261,23 @@ CREATE TABLE poi_events (
     nq_event_time TEXT,  -- NULL if NQ hasn't touched yet
 
     -- Echo Chamber metrics (auto-calculated)
-    time_delta_seconds INTEGER,  -- abs(es_time - nq_time), NULL if only one touched
-    leader TEXT,  -- 'ES', 'NQ', or 'simultaneous' (< 60 sec)
+    time_delta_minutes INTEGER,  -- abs(es_time - nq_time) in minutes, NULL if only one touched
+    leader TEXT,  -- 'ES', 'NQ', or 'simultaneous' (< 1 minute)
 
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
 
-    FOREIGN KEY (session_id) REFERENCES sessions(id)
+    FOREIGN KEY (es_session_id) REFERENCES sessions(id),
+    FOREIGN KEY (nq_session_id) REFERENCES sessions(id)
 );
 
-CREATE INDEX idx_poi_events_session ON poi_events(session_id);
+CREATE INDEX idx_poi_events_es_session ON poi_events(es_session_id);
+CREATE INDEX idx_poi_events_nq_session ON poi_events(nq_session_id);
 CREATE INDEX idx_poi_events_trading_day ON poi_events(trading_day);
-CREATE INDEX idx_poi_events_symbol_session ON poi_events(symbol, session_name);
+CREATE INDEX idx_poi_events_session_name ON poi_events(session_name);
 CREATE INDEX idx_poi_events_es_time ON poi_events(es_event_time);
 CREATE INDEX idx_poi_events_nq_time ON poi_events(nq_event_time);
+CREATE INDEX idx_poi_events_event_type ON poi_events(event_type);
 ```
 
 ### Column Definitions
@@ -280,16 +285,16 @@ CREATE INDEX idx_poi_events_nq_time ON poi_events(nq_event_time);
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | INTEGER | Primary key |
-| `session_id` | INTEGER | Foreign key to sessions table |
+| `es_session_id` | INTEGER | Foreign key to ES session |
+| `nq_session_id` | INTEGER | Foreign key to NQ session |
 | `trading_day` | TEXT | Trading day in YYYY-MM-DD format (e.g., '2025-12-16') |
-| `symbol` | TEXT | 'ES' or 'NQ' (denormalized from sessions) |
 | `session_type` | TEXT | 'Major', 'Minor', 'Weekly', 'Monthly', or 'Yearly' |
-| `session_name` | TEXT | Specific session: 'London', 'm0900', 'Weekly', 'Monthly', 'Yearly' |
+| `session_name` | TEXT | Full session name: 'London 2025-12-16', 'm0900 2025-12-16', etc. |
 | `poi_type` | TEXT | Which level touched: 'PoC', 'RPP', or 'TO' |
-| `event_type` | TEXT | Type of event: 'break', 'return', or 'resolution' |
+| `event_type` | TEXT | Session status transition: 'first_break', 'return', 'second_break_same', 'second_break_opposite', 'resolved' |
 | `es_event_time` | TEXT | When ES touched (NULL if not yet) |
 | `nq_event_time` | TEXT | When NQ touched (NULL if not yet) |
-| `time_delta_seconds` | INTEGER | Time difference in seconds |
+| `time_delta_minutes` | INTEGER | Time difference in minutes |
 | `leader` | TEXT | 'ES', 'NQ', or 'simultaneous' |
 | `created_at` | TEXT | When record created |
 | `updated_at` | TEXT | When record last updated |
@@ -362,18 +367,17 @@ AND event_type = 'break';
 With denormalized columns, you can easily query without joins:
 
 ```sql
--- Find all London PoC breaks on specific date
+-- Find all London PoC first breaks on specific date
 SELECT * FROM poi_events
 WHERE trading_day = '2025-12-16'
-AND session_name = 'London'
+AND session_name LIKE 'London%'
 AND poi_type = 'PoC'
-AND event_type = 'break';
+AND event_type = 'first_break';
 
--- Find all Major session events for ES
+-- Find all Major session events
 SELECT * FROM poi_events
-WHERE symbol = 'ES'
-AND session_type = 'Major'
-ORDER BY trading_day DESC, es_event_time DESC;
+WHERE session_type = 'Major'
+ORDER BY trading_day DESC, COALESCE(es_event_time, nq_event_time) DESC;
 
 -- Find Weekly session events
 SELECT * FROM poi_events
@@ -594,10 +598,12 @@ Example: `2025-11-27T09:15:00-05:00`
 
 ### Event Types
 
-`poi_events.event_type` must be one of:
-- `'break'`
-- `'return'`
-- `'resolution'`
+`poi_events.event_type` must be one of (matches session status vocabulary):
+- `'first_break'` - Initial PoC or RPP touch
+- `'return'` - Return to TO after first break
+- `'second_break_same'` - Second break on same side as first
+- `'second_break_opposite'` - Second break on opposite side from first
+- `'resolved'` - Second return to TO (session complete)
 
 ---
 
