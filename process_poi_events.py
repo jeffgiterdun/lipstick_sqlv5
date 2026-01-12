@@ -228,7 +228,8 @@ def get_or_create_poi_event(
         session_type: 'Yearly' or 'Monthly'
         session_name: Session name
         poi_type: 'PoC', 'RPP', or 'TO'
-        event_type: 'break', 'return', or 'resolution'
+        event_type: Session status value ('first_break', 'return', 'second_break_same',
+                   'second_break_opposite', 'resolved')
         symbol: 'ES' or 'NQ' (which asset touched in this call)
         event_time: ISO timestamp of the touch
 
@@ -238,7 +239,7 @@ def get_or_create_poi_event(
     cursor = conn.cursor()
     now = datetime.now(timezone.utc).isoformat()
 
-    # Check if event already exists for these sessions + POI type + event type
+    # Check if event already exists for these sessions + POI type + event_type
     cursor.execute("""
         SELECT id, es_event_time, nq_event_time
         FROM poi_events
@@ -249,6 +250,8 @@ def get_or_create_poi_event(
     """, (es_session_id, nq_session_id, poi_type, event_type))
 
     existing = cursor.fetchone()
+    if existing:
+        existing = dict(existing)
 
     if existing:
         # Update existing event
@@ -333,7 +336,7 @@ def update_session_status(
         if poi_type in ['PoC', 'RPP']:
             cursor.execute("""
                 UPDATE sessions
-                SET status = 'break',
+                SET status = 'first_break',
                     first_break_time = ?,
                     first_break_side = ?,
                     updated_at = ?
@@ -344,9 +347,20 @@ def update_session_status(
             # TO touch while unbroken - ignore
             return False
 
-    elif current_status == 'break':
+    elif current_status in ['break', 'first_break']:
         # Waiting for first return to TO
+        # Support both 'break' (legacy) and 'first_break' (new) status values
         if poi_type == 'TO':
+            # CRITICAL VALIDATION: First return MUST occur after first break
+            # This prevents return_time from being set to timestamps before the break
+            if session['first_break_time'] is None:
+                # No first break yet - this shouldn't happen, but guard against it
+                return False
+
+            if event_time <= session['first_break_time']:
+                # Return time must be AFTER break time - ignore this touch
+                return False
+
             cursor.execute("""
                 UPDATE sessions
                 SET status = 'return',
@@ -364,14 +378,34 @@ def update_session_status(
         if poi_type in ['PoC', 'RPP']:
             # Second break
             if session['second_break_time'] is None:
+                # CRITICAL VALIDATION: Second break MUST occur after first return
+                # This prevents second_break_time from being set to timestamps before the return
+                if session['first_return_time'] is None:
+                    # No first return yet - this shouldn't happen, but guard against it
+                    return False
+
+                if event_time <= session['first_return_time']:
+                    # Second break time must be AFTER return time - ignore this touch
+                    return False
+
+                # Determine if same-side or opposite-side break
+                first_side = session['first_break_side']
+                second_side = poi_type
+
+                if first_side == second_side:
+                    new_status = 'second_break_same'
+                else:
+                    new_status = 'second_break_opposite'
+
                 # First touch of PoC/RPP after return
                 cursor.execute("""
                     UPDATE sessions
-                    SET second_break_time = ?,
+                    SET status = ?,
+                        second_break_time = ?,
                         second_break_side = ?,
                         updated_at = ?
                     WHERE id = ?
-                """, (event_time, poi_type, now, session_id))
+                """, (new_status, event_time, poi_type, now, session_id))
                 return True
             else:
                 # Additional touches after second break - ignore
@@ -380,15 +414,15 @@ def update_session_status(
         elif poi_type == 'TO':
             # Resolution (second return to TO)
             if session['second_break_time'] is not None:
-                # CRITICAL VALIDATION: Resolution MUST occur after first_return
-                # This prevents resolution_time from being set to timestamps from the 'unbroken' state
-                if session['first_return_time'] is None:
-                    # No first return yet - this shouldn't happen, but guard against it
+                # CRITICAL VALIDATION: Resolution MUST occur after second_break
+                # This prevents resolution_time from being set to timestamps before the second break
+                if session['second_break_time'] is None:
+                    # No second break yet - this shouldn't happen, but guard against it
                     return False
 
-                if event_time <= session['first_return_time']:
-                    # Resolution time must be AFTER return time - ignore this touch
-                    # This prevents the bug where resolution_time < first_return_time
+                if event_time <= session['second_break_time']:
+                    # Resolution time must be AFTER second break time - ignore this touch
+                    # This prevents the bug where resolution_time < second_break_time
                     return False
 
                 # Determine resolution type
@@ -406,6 +440,34 @@ def update_session_status(
             else:
                 # TO touch but no second break yet - ignore
                 return False
+
+    elif current_status in ['second_break_same', 'second_break_opposite']:
+        # Waiting for resolution (second return to TO)
+        if poi_type == 'TO':
+            # CRITICAL VALIDATION: Resolution MUST occur after second_break
+            if session['second_break_time'] is None:
+                # No second break yet - this shouldn't happen, but guard against it
+                return False
+
+            if event_time <= session['second_break_time']:
+                # Resolution time must be AFTER second break time - ignore this touch
+                return False
+
+            # Determine resolution type
+            resolution_type = 'single_sided' if session['first_break_side'] == session['second_break_side'] else 'double_sided'
+
+            cursor.execute("""
+                UPDATE sessions
+                SET status = 'resolved',
+                    resolution_time = ?,
+                    resolution_type = ?,
+                    updated_at = ?
+                WHERE id = ?
+            """, (event_time, resolution_type, now, session_id))
+            return True
+        else:
+            # Additional PoC/RPP touches after second break - ignore
+            return False
 
     elif current_status == 'resolved':
         # Session complete - ignore all touches
@@ -561,20 +623,18 @@ def process_session(
                     status_changed = update_session_status(conn, current_session, poi_type, candle_time)
 
                     if status_changed:
-                        # Determine event type based on new status
+                        # Get new status - this becomes the event_type
                         cursor.execute("SELECT status FROM sessions WHERE id = ?", (current_symbol_session_id,))
                         new_status = cursor.fetchone()['status']
 
-                        if new_status == 'break':
-                            event_type = 'break'
-                        elif new_status == 'return':
-                            if current_session['first_return_time'] is None:
-                                event_type = 'return'
-                            else:
-                                event_type = 'break'  # Second break
-                        elif new_status == 'resolved':
-                            event_type = 'resolution'
-                        else:
+                        # Use the session status directly as event_type
+                        # Valid values: 'first_break', 'return', 'second_break_same',
+                        #               'second_break_opposite', 'resolved'
+                        event_type = new_status
+
+                        # Skip if status is not one of the valid event types
+                        if event_type not in ['first_break', 'return', 'second_break_same',
+                                              'second_break_opposite', 'resolved']:
                             continue
 
                         # Create or update POI event (shared between ES and NQ)
